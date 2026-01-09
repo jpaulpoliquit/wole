@@ -85,7 +85,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
     }
 
     println!();
-    println!("{}", Theme::header("Sweeper Scan Results"));
+    println!("{}", Theme::header("Wole Scan Results"));
     println!("{}", Theme::divider_bold(60));
     println!();
     println!(
@@ -198,7 +198,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
         println!();
         println!(
             "Run {} to remove these files.",
-            Theme::command("sweeper clean --all")
+            Theme::command("wole clean --all")
         );
     }
     println!();
@@ -546,7 +546,7 @@ pub fn print_disk_insights(
     if mode == OutputMode::Normal || mode == OutputMode::Verbose {
         println!(
             "Run {} to explore interactively.",
-            Theme::command("sweeper analyze --interactive")
+            Theme::command("wole analyze --interactive")
         );
     }
     println!();

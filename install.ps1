@@ -1,9 +1,9 @@
-# sweeper Windows Installer
-# Downloads and installs sweeper from GitHub releases
+# wole Windows Installer
+# Downloads and installs wole from GitHub releases
 
 $ErrorActionPreference = "Stop"
 
-$REPO = "jpaulpoliquit/sweeper"
+$REPO = "jpaulpoliquit/wole"
 
 # Detect architecture
 # Check PROCESSOR_ARCHITECTURE environment variable first
@@ -79,18 +79,18 @@ if ([string]::IsNullOrEmpty($ARCH)) {
     $ARCH = "x86_64"
 }
 
-$ASSET = "sweeper-windows-${ARCH}.zip"
+$ASSET = "wole-windows-${ARCH}.zip"
 $URL = "https://github.com/${REPO}/releases/latest/download/${ASSET}"
 
-Write-Host "Downloading sweeper for Windows-${ARCH}..." -ForegroundColor Cyan
+Write-Host "Downloading wole for Windows-${ARCH}..." -ForegroundColor Cyan
 
 # Create temp directory
-$TEMP_DIR = Join-Path $env:TEMP "sweeper-install"
+$TEMP_DIR = Join-Path $env:TEMP "wole-install"
 New-Item -ItemType Directory -Force -Path $TEMP_DIR | Out-Null
 
 try {
     # Download the release
-    $ZIP_PATH = Join-Path $TEMP_DIR "sweeper.zip"
+    $ZIP_PATH = Join-Path $TEMP_DIR "wole.zip"
     Write-Host "Downloading from $URL..." -ForegroundColor Gray
     Invoke-WebRequest -Uri $URL -OutFile $ZIP_PATH -UseBasicParsing
     
@@ -98,22 +98,22 @@ try {
     Write-Host "Extracting..." -ForegroundColor Gray
     Expand-Archive -Path $ZIP_PATH -DestinationPath $TEMP_DIR -Force
     
-    # Find the executable (could be sweeper.exe or sweeper-windows-x86_64.exe)
-    $EXE_NAME = "sweeper.exe"
+    # Find the executable (could be wole.exe or wole-windows-x86_64.exe)
+    $EXE_NAME = "wole.exe"
     $EXE_PATH = Join-Path $TEMP_DIR $EXE_NAME
     
     # If not found, look for any .exe in the extracted folder
     if (-not (Test-Path $EXE_PATH)) {
         $EXE_PATH = Get-ChildItem -Path $TEMP_DIR -Filter "*.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
         if (-not $EXE_PATH) {
-            Write-Error "Could not find sweeper.exe in downloaded archive"
+            Write-Error "Could not find wole.exe in downloaded archive"
             exit 1
         }
     }
     
     # Determine install location
     # Use user directory by default (no admin required)
-    $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "sweeper\bin"
+    $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "wole\bin"
     
     # Create install directory
     New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
@@ -223,9 +223,9 @@ try {
     
     Write-Host ""
     if ($exeExists) {
-        Write-Host "✓ sweeper installed successfully!" -ForegroundColor Green
+        Write-Host "✓ wole installed successfully!" -ForegroundColor Green
         if ($pathContainsDir) {
-            Write-Host "✓ PATH updated - sweeper should be available immediately" -ForegroundColor Green
+            Write-Host "✓ PATH updated - wole should be available immediately" -ForegroundColor Green
         } else {
             Write-Host "⚠ PATH may need a terminal restart" -ForegroundColor Yellow
         }
@@ -233,7 +233,7 @@ try {
         Write-Host "✗ Installation may have failed - executable not found" -ForegroundColor Red
     }
     Write-Host ""
-    Write-Host "Run 'sweeper --help' to get started." -ForegroundColor Cyan
+    Write-Host "Run 'wole --help' to get started." -ForegroundColor Cyan
     
 } finally {
     # Cleanup

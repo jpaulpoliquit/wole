@@ -351,10 +351,10 @@ fn default_duplicate_buffer_size() -> usize {
 } // 8MB
 
 impl Config {
-    /// Get the config file path: %APPDATA%\sweeper\config.toml
+    /// Get the config file path: %APPDATA%\wole\config.toml
     pub fn config_path() -> Result<PathBuf> {
         let appdata = std::env::var("APPDATA").context("APPDATA environment variable not set")?;
-        let config_dir = PathBuf::from(appdata).join("sweeper");
+        let config_dir = PathBuf::from(appdata).join("wole");
         Ok(config_dir.join("config.toml"))
     }
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="jpaulpoliquit/sweeper"
+REPO="jpaulpoliquit/wole"
 
 # Detect OS and architecture
 OS="windows"
@@ -34,10 +34,10 @@ case "$ARCH" in
   *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-ASSET="sweeper-windows-${ARCH}.zip"
+ASSET="wole-windows-${ARCH}.zip"
 URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
 
-echo "Downloading sweeper for Windows-${ARCH}..."
+echo "Downloading wole for Windows-${ARCH}..."
 
 # Create temp directory
 TEMP_DIR=$(mktemp -d)
@@ -46,9 +46,9 @@ trap "rm -rf $TEMP_DIR" EXIT
 # Download
 echo "Downloading from $URL..."
 if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$URL" -o "$TEMP_DIR/sweeper.zip"
+  curl -fsSL "$URL" -o "$TEMP_DIR/wole.zip"
 elif command -v wget >/dev/null 2>&1; then
-  wget -q "$URL" -O "$TEMP_DIR/sweeper.zip"
+  wget -q "$URL" -O "$TEMP_DIR/wole.zip"
 else
   echo "Error: curl or wget is required"
   exit 1
@@ -56,22 +56,22 @@ fi
 
 # Extract (use unzip if available, otherwise PowerShell)
 if command -v unzip >/dev/null 2>&1; then
-  unzip -q "$TEMP_DIR/sweeper.zip" -d "$TEMP_DIR"
+  unzip -q "$TEMP_DIR/wole.zip" -d "$TEMP_DIR"
 else
   # Fall back to PowerShell on Windows
   powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
-    "Expand-Archive -Path '$TEMP_DIR/sweeper.zip' -DestinationPath '$TEMP_DIR' -Force"
+    "Expand-Archive -Path '$TEMP_DIR/wole.zip' -DestinationPath '$TEMP_DIR' -Force"
 fi
 
 # Find executable
 EXE_PATH=""
-if [ -f "$TEMP_DIR/sweeper.exe" ]; then
-  EXE_PATH="$TEMP_DIR/sweeper.exe"
+if [ -f "$TEMP_DIR/wole.exe" ]; then
+  EXE_PATH="$TEMP_DIR/wole.exe"
 else
   # Look for any .exe in extracted folder
   EXE_PATH=$(find "$TEMP_DIR" -name "*.exe" -type f | head -n 1)
   if [ -z "$EXE_PATH" ]; then
-    echo "Error: Could not find sweeper.exe in downloaded archive"
+    echo "Error: Could not find wole.exe in downloaded archive"
     exit 1
   fi
 fi
@@ -82,7 +82,7 @@ INSTALL_DIR=""
 # Try to use Windows paths
 if [ -n "$LOCALAPPDATA" ]; then
   # Convert Windows path to Unix-style for Git Bash
-  INSTALL_DIR=$(cygpath -u "$LOCALAPPDATA")/sweeper/bin
+  INSTALL_DIR=$(cygpath -u "$LOCALAPPDATA")/wole/bin
 elif [ -n "$USERPROFILE" ]; then
   INSTALL_DIR=$(cygpath -u "$USERPROFILE")/.local/bin
 else
@@ -93,10 +93,10 @@ fi
 mkdir -p "$INSTALL_DIR"
 
 # Copy executable
-cp "$EXE_PATH" "$INSTALL_DIR/sweeper.exe"
-chmod +x "$INSTALL_DIR/sweeper.exe"
+cp "$EXE_PATH" "$INSTALL_DIR/wole.exe"
+chmod +x "$INSTALL_DIR/wole.exe"
 
-echo "Installed to $INSTALL_DIR/sweeper.exe"
+echo "Installed to $INSTALL_DIR/wole.exe"
 
 # Add to PATH using PowerShell (works better on Windows)
 INSTALL_DIR_WIN=$(cygpath -w "$INSTALL_DIR" 2>/dev/null || echo "$INSTALL_DIR")
@@ -113,9 +113,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
    }"
 
 echo ""
-echo "✓ sweeper installed successfully!"
+echo "✓ wole installed successfully!"
 echo ""
-echo "Note: Restart your terminal or run this to use sweeper immediately:"
+echo "Note: Restart your terminal or run this to use wole immediately:"
 echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
 echo ""
-echo "Run 'sweeper --help' to get started."
+echo "Run 'wole --help' to get started."

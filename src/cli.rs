@@ -12,17 +12,20 @@ use crate::size;
 use crate::theme::Theme;
 
 #[derive(Parser)]
-#[command(name = "sweeper")]
+#[command(name = "wole")]
 #[command(version)]
 #[command(about = "Reclaim disk space on Windows by cleaning unused files")]
 #[command(
-    long_about = "Sweeper is a developer-focused CLI tool that safely identifies and removes \
+    long_about = "Wole is a developer-focused CLI tool that safely identifies and removes \
     unused files to free up disk space.\n\n\
+    Interactive Mode:\n  \
+    wole                          # Launch interactive TUI mode\n  \
+    wole analyze --interactive    # Launch TUI for disk insights\n\n\
     Examples:\n  \
-    sweeper scan --all              # Scan all categories\n  \
-    sweeper scan --cache --temp     # Scan specific categories\n  \
-    sweeper clean --all -y          # Clean all categories without confirmation\n  \
-    sweeper scan --large --min-size 500MB  # Find files over 500MB"
+    wole scan --all              # Scan all categories\n  \
+    wole scan --cache --temp     # Scan specific categories\n  \
+    wole clean --all -y          # Clean all categories without confirmation\n  \
+    wole scan --large --min-size 500MB  # Find files over 500MB"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -333,7 +336,7 @@ impl Cli {
         println!();
         println!(
             "{}",
-            Theme::header("Sweeper - Reclaim Disk Space on Windows")
+            Theme::header("Wole - Reclaim Disk Space on Windows")
         );
         println!("{}", Theme::divider_bold(60));
         println!();
@@ -388,24 +391,32 @@ impl Cli {
         println!("{}", Theme::primary("Quick Examples:"));
         println!();
         println!(
+            "  {} Launch interactive TUI mode",
+            Theme::command("wole")
+        );
+        println!(
             "  {} Scan all categories",
-            Theme::command("sweeper scan --all")
+            Theme::command("wole scan --all")
         );
         println!(
             "  {} Scan specific categories",
-            Theme::command("sweeper scan --cache --temp")
+            Theme::command("wole scan --cache --temp")
         );
         println!(
             "  {} Clean all files",
-            Theme::command("sweeper clean --all -y")
+            Theme::command("wole clean --all -y")
         );
         println!(
             "  {} Find large files",
-            Theme::command("sweeper scan --large --min-size 500MB")
+            Theme::command("wole scan --large --min-size 500MB")
+        );
+        println!(
+            "  {} Interactive disk insights",
+            Theme::command("wole analyze --interactive")
         );
         println!(
             "  {} Restore last deletion",
-            Theme::command("sweeper restore --last")
+            Theme::command("wole restore --last")
         );
         println!();
         println!(
@@ -473,7 +484,7 @@ impl Cli {
                 {
                     // No categories specified - show help message
                     eprintln!("No categories specified. Use --all or specify categories like --cache, --app-cache, --temp, --build");
-                    eprintln!("Run 'sweeper scan --help' for more information.");
+                    eprintln!("Run 'wole scan --help' for more information.");
                     return Ok(());
                 } else {
                     // Scan command doesn't support browser, system, empty, duplicates
@@ -613,7 +624,7 @@ impl Cli {
                 {
                     // No categories specified - show help message
                     eprintln!("No categories specified. Use --all or specify categories like --cache, --app-cache, --temp, --build");
-                    eprintln!("Run 'sweeper clean --help' for more information.");
+                    eprintln!("Run 'wole clean --help' for more information.");
                     return Ok(());
                 } else {
                     (

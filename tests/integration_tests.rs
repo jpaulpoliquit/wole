@@ -1,15 +1,15 @@
-//! Integration tests for sweeper
+//! Integration tests for wole
 //!
 //! These tests verify end-to-end workflows and interactions between modules
 
 use std::fs;
 use std::path::PathBuf;
-use sweeper::cli::ScanOptions;
-use sweeper::config::Config;
-use sweeper::history::{DeletionLog, DeletionRecord};
-use sweeper::output::OutputMode;
-use sweeper::scanner;
-use sweeper::utils;
+use wole::cli::ScanOptions;
+use wole::config::Config;
+use wole::history::{DeletionLog, DeletionRecord};
+use wole::output::OutputMode;
+use wole::scanner;
+use wole::utils;
 use tempfile::TempDir;
 
 fn create_test_dir() -> TempDir {
@@ -283,7 +283,7 @@ fn test_deletion_record_failure() {
 #[test]
 fn test_history_dir_creation() {
     // This test verifies get_history_dir works without panicking
-    let result = sweeper::history::get_history_dir();
+    let result = wole::history::get_history_dir();
     assert!(result.is_ok());
 
     let dir = result.unwrap();

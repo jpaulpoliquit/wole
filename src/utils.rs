@@ -1,4 +1,4 @@
-//! Shared utilities for sweeper
+//! Shared utilities for wole
 //!
 //! This module contains common functions used across multiple category scanners
 //! to reduce code duplication and ensure consistent behavior.

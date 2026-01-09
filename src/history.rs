@@ -162,8 +162,8 @@ impl DeletionLog {
 /// Get the history directory path
 ///
 /// Creates the directory if it doesn't exist
-/// Location: %LOCALAPPDATA%\sweeper\history\ (Windows)
-///           ~/.local/share/sweeper/history/ (Linux/macOS)
+/// Location: %LOCALAPPDATA%\wole\history\ (Windows)
+///           ~/.local/share/wole/history/ (Linux/macOS)
 pub fn get_history_dir() -> Result<PathBuf> {
     let base_dir = if cfg!(windows) {
         std::env::var("LOCALAPPDATA")
@@ -181,7 +181,7 @@ pub fn get_history_dir() -> Result<PathBuf> {
             .unwrap_or_else(|_| PathBuf::from("."))
     };
 
-    let history_dir = base_dir.join("sweeper").join("history");
+    let history_dir = base_dir.join("wole").join("history");
 
     // Create directory if it doesn't exist
     if !history_dir.exists() {

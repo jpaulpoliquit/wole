@@ -1,10 +1,10 @@
 @echo off
-REM sweeper Windows Installer (Batch version)
-REM Downloads and installs sweeper from GitHub releases
+REM wole Windows Installer (Batch version)
+REM Downloads and installs wole from GitHub releases
 
 setlocal enabledelayedexpansion
 
-set REPO=jpaulpoliquit/sweeper
+set REPO=jpaulpoliquit/wole
 
 REM Detect architecture
 REM Check PROCESSOR_ARCHITECTURE (may be x86 for 32-bit processes on 64-bit systems)
@@ -33,50 +33,50 @@ if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
     )
 )
 
-set ASSET=sweeper-windows-%ARCH%.zip
+set ASSET=wole-windows-%ARCH%.zip
 set URL=https://github.com/%REPO%/releases/latest/download/%ASSET%
 
-echo Downloading sweeper for Windows-%ARCH%...
+echo Downloading wole for Windows-%ARCH%...
 
 REM Create temp directory
-set TEMP_DIR=%TEMP%\sweeper-install
+set TEMP_DIR=%TEMP%\wole-install
 if not exist "%TEMP_DIR%" mkdir "%TEMP_DIR%"
 
 REM Download using PowerShell (works on Windows 7+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$ProgressPreference = 'SilentlyContinue'; ^
-     Invoke-WebRequest -Uri '%URL%' -OutFile '%TEMP_DIR%\sweeper.zip' -UseBasicParsing"
+     Invoke-WebRequest -Uri '%URL%' -OutFile '%TEMP_DIR%\wole.zip' -UseBasicParsing"
 
 if errorlevel 1 (
-    echo Failed to download sweeper
+    echo Failed to download wole
     exit /b 1
 )
 
 REM Extract using PowerShell
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "Expand-Archive -Path '%TEMP_DIR%\sweeper.zip' -DestinationPath '%TEMP_DIR%' -Force"
+    "Expand-Archive -Path '%TEMP_DIR%\wole.zip' -DestinationPath '%TEMP_DIR%' -Force"
 
 REM Find executable
-set EXE_PATH=%TEMP_DIR%\sweeper.exe
+set EXE_PATH=%TEMP_DIR%\wole.exe
 if not exist "%EXE_PATH%" (
     REM Look for any .exe in extracted folder
     for /r "%TEMP_DIR%" %%f in (*.exe) do (
         set EXE_PATH=%%f
         goto :found_exe
     )
-    echo Could not find sweeper.exe in downloaded archive
+    echo Could not find wole.exe in downloaded archive
     exit /b 1
 )
 :found_exe
 
 REM Determine install location
-set INSTALL_DIR=%LOCALAPPDATA%\sweeper\bin
+set INSTALL_DIR=%LOCALAPPDATA%\wole\bin
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
 
 REM Copy executable
-copy /Y "%EXE_PATH%" "%INSTALL_DIR%\sweeper.exe" >nul
+copy /Y "%EXE_PATH%" "%INSTALL_DIR%\wole.exe" >nul
 
-echo Installed to %INSTALL_DIR%\sweeper.exe
+echo Installed to %INSTALL_DIR%\wole.exe
 
 REM Add to PATH using PowerShell (with robust path handling)
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -115,12 +115,12 @@ REM Refresh PATH in current batch session (for immediate use within this script)
 set PATH=%PATH%;%INSTALL_DIR%
 
 echo.
-echo ✓ sweeper installed successfully!
+echo ✓ wole installed successfully!
 echo.
-echo Note: If 'sweeper' is not recognized, restart your terminal or run:
+echo Note: If 'wole' is not recognized, restart your terminal or run:
 echo   set PATH=%%PATH%%;%INSTALL_DIR%
 echo.
-echo Run 'sweeper --help' to get started.
+echo Run 'wole --help' to get started.
 
 REM Cleanup
 rmdir /s /q "%TEMP_DIR%" 2>nul

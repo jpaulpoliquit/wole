@@ -225,7 +225,7 @@ pub fn print_report(result: &ScanResult) {
 
     // Print header
     println!();
-    println!("Sweeper Scan Results");
+    println!("Wole Scan Results");
     println!("{}", "=".repeat(60));
     println!();
 

@@ -1,4 +1,4 @@
-//! Sweeper library crate
+//! Wole library crate
 //!
 //! This crate provides both a CLI binary and a library API for programmatic use
 

@@ -1,4 +1,4 @@
-//! Reusable SWEEPER ASCII logo widget
+//! Reusable WOLE ASCII logo widget
 //!
 //! Provides consistent branding across all TUI screens with optional animation support.
 
@@ -11,23 +11,23 @@ use ratatui::{
     Frame,
 };
 
-/// ASCII art lines for the SWEEPER logo
+/// ASCII art lines for the WOLE logo
 const LOGO_LINES: &[&str] = &[
-    "  ███████╗██╗    ██╗███████╗███████╗██████╗ ███████╗██████╗ ",
-    "  ██╔════╝██║    ██║██╔════╝██╔════╝██╔══██╗██╔════╝██╔══██╗",
-    "  ███████╗██║ █╗ ██║█████╗  █████╗  ██████╔╝█████╗  ██████╔╝",
-    "  ╚════██║██║███╗██║██╔══╝  ██╔══╝  ██║     ██╔══╝  ██╔══██╗",
-    "  ███████║╚███╔███╔╝███████╗███████╗██║     ███████╗██║  ██║",
-    "  ╚══════╝ ╚══╝╚══╝ ╚══════╝╚══════╝╚═╝     ╚══════╝╚═╝  ╚═╝",
+    "  ██╗    ██╗ ██████╗ ██╗     ███████╗",
+    "  ██║    ██║██╔═══██╗██║     ██╔════╝",
+    "  ██║ █╗ ██║██║   ██║██║     █████╗  ",
+    "  ██║███╗██║██║   ██║██║     ██╔══╝  ",
+    "  ╚███╔███╔╝╚██████╔╝███████╗███████╗",
+    "   ╚══╝╚══╝  ╚═════╝ ╚══════╝╚══════╝",
 ];
 
 /// Height of the logo in lines
 pub const LOGO_HEIGHT: u16 = 6;
 
 /// Width of the logo in characters
-pub const LOGO_WIDTH: u16 = 62;
+pub const LOGO_WIDTH: u16 = 40;
 
-/// Render the SWEEPER logo at the given area
+/// Render the WOLE logo at the given area
 /// Adds a line of spacing before the logo
 pub fn render_logo(f: &mut Frame, area: Rect) {
     // Add spacing before logo by offsetting the y position
@@ -40,7 +40,7 @@ pub fn render_logo(f: &mut Frame, area: Rect) {
     render_logo_with_style(f, logo_area, Alignment::Left, false, 0)
 }
 
-/// Render the SWEEPER logo centered
+/// Render the WOLE logo centered
 /// Adds a line of spacing before the logo
 pub fn render_logo_centered(f: &mut Frame, area: Rect) {
     // Add spacing before logo by offsetting the y position
@@ -53,7 +53,7 @@ pub fn render_logo_centered(f: &mut Frame, area: Rect) {
     render_logo_with_style(f, logo_area, Alignment::Center, false, 0)
 }
 
-/// Render the SWEEPER logo with a sweep-in animation effect
+/// Render the WOLE logo with a sweep-in animation effect
 ///
 /// `progress` is 0.0 to 1.0, where 1.0 means fully revealed
 /// Adds a line of spacing before the logo
@@ -81,7 +81,7 @@ pub fn render_logo_animated(f: &mut Frame, area: Rect, progress: f32) {
     f.render_widget(title_paragraph, logo_area);
 }
 
-/// Render the SWEEPER logo with custom alignment and optional animation
+/// Render the WOLE logo with custom alignment and optional animation
 pub fn render_logo_with_style(
     f: &mut Frame,
     area: Rect,
@@ -147,8 +147,8 @@ pub fn render_tagline(f: &mut Frame, area: Rect) {
 
     // Create hyperlink using OSC 8 escape sequences for terminal hyperlink support
     // Format: \x1b]8;;URL\x1b\\TEXT\x1b]8;;\x1b\\
-    let url = "https://github.com/jpaulpoliquit/sweeper";
-    let link_text = "jpaulpoliquit/sweeper";
+    let url = "https://github.com/jpaulpoliquit/wole";
+    let link_text = "jpaulpoliquit/wole";
     let hyperlink = format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, link_text);
 
     // Logo has 2 leading spaces, so add 2 spaces to tagline to align visually
@@ -179,7 +179,7 @@ pub fn render_tagline_centered(f: &mut Frame, area: Rect) {
     let tagline = Paragraph::new(Line::from(vec![
         Span::styled("Reclaim disk space on Windows", Styles::secondary()),
         Span::styled(" • ", Styles::secondary()),
-        Span::styled("jpaulpoliquit/sweeper", link_style),
+        Span::styled("jpaulpoliquit/wole", link_style),
     ]))
     .alignment(Alignment::Center);
 

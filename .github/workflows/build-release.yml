@@ -134,7 +134,7 @@ jobs:
       
       - name: Verify binary exists
         run: |
-          $binaryPath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
+          $binaryPath = "target\${{ matrix.target_dir }}\release\wole.exe"
           if (Test-Path $binaryPath) {
             Write-Host "Binary built successfully"
             $file = Get-Item $binaryPath
@@ -155,7 +155,7 @@ jobs:
       - name: Test binary execution (x64 only)
         if: matrix.target == 'x86_64-pc-windows-msvc'
         run: |
-          $binaryPath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
+          $binaryPath = "target\${{ matrix.target_dir }}\release\wole.exe"
           Write-Host "Testing binary execution..."
           $output = & $binaryPath --help 2>&1
           if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
@@ -168,9 +168,9 @@ jobs:
       
       - name: Create release zip package
         run: |
-          $zipName = "sweeper-windows-${{ matrix.arch }}.zip"
+          $zipName = "wole-windows-${{ matrix.arch }}.zip"
           $zipPath = "target\${{ matrix.target_dir }}\release\$zipName"
-          $exePath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
+          $exePath = "target\${{ matrix.target_dir }}\release\wole.exe"
           
           # Create zip file with the executable
           Compress-Archive -Path $exePath -DestinationPath $zipPath -Force
@@ -181,24 +181,24 @@ jobs:
           
           # Verify zip contents
           Write-Host "Verifying zip contents..."
-          $testDir = Join-Path $env:TEMP "sweeper-zip-test"
+          $testDir = Join-Path $env:TEMP "wole-zip-test"
           Expand-Archive -Path $zipPath -DestinationPath $testDir -Force | Out-Null
-          $extractedExe = Join-Path $testDir "sweeper.exe"
+          $extractedExe = Join-Path $testDir "wole.exe"
           if (Test-Path $extractedExe) {
-            Write-Host "✓ Zip contains sweeper.exe"
+            Write-Host "✓ Zip contains wole.exe"
             Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
           } else {
-            Write-Error "Zip verification failed: sweeper.exe not found in zip"
+            Write-Error "Zip verification failed: wole.exe not found in zip"
             exit 1
           }
       
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sweeper-windows-${{ matrix.arch }}
+          name: wole-windows-${{ matrix.arch }}
           path: |
-            target/${{ matrix.target_dir }}/release/sweeper.exe
-            target/${{ matrix.target_dir }}/release/sweeper-windows-${{ matrix.arch }}.zip
+            target/${{ matrix.target_dir }}/release/wole.exe
+            target/${{ matrix.target_dir }}/release/wole-windows-${{ matrix.arch }}.zip
           retention-days: 7
   
   release:
@@ -222,9 +222,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/sweeper-windows-x86_64/sweeper-windows-x86_64.zip
-            artifacts/sweeper-windows-arm64/sweeper-windows-arm64.zip
-            artifacts/sweeper-windows-i686/sweeper-windows-i686.zip
+            artifacts/wole-windows-x86_64/wole-windows-x86_64.zip
+            artifacts/wole-windows-arm64/wole-windows-arm64.zip
+            artifacts/wole-windows-i686/wole-windows-i686.zip
           name: Release ${{ github.ref_name }}
           body: |
             ## Changes
@@ -238,11 +238,11 @@ jobs:
             ```
             
             **Manual:** Download the appropriate zip for your architecture:
-            - `sweeper-windows-x86_64.zip` - 64-bit Intel/AMD
-            - `sweeper-windows-arm64.zip` - ARM64 (Windows on ARM)
-            - `sweeper-windows-i686.zip` - 32-bit Intel/AMD
+            - `wole-windows-x86_64.zip` - 64-bit Intel/AMD
+            - `wole-windows-arm64.zip` - ARM64 (Windows on ARM)
+            - `wole-windows-i686.zip` - 32-bit Intel/AMD
             
-            Extract and add `sweeper.exe` to your PATH.
+            Extract and add `wole.exe` to your PATH.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:
