@@ -5,11 +5,44 @@
 use crate::history::{list_logs, load_log, DeletionLog};
 use crate::theme::Theme;
 use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use trash::os_limited;
+
+/// Callback function type for progress updates during restoration
+pub type RestoreProgressCallback =
+    Box<dyn FnMut(Option<&Path>, usize, usize, usize, usize) -> Result<()>>;
+
+/// Get the count of files that can be restored from the most recent deletion session
+pub fn get_restore_count() -> Result<usize> {
+    let logs = list_logs()?;
+
+    if logs.is_empty() {
+        return Ok(0);
+    }
+
+    // Get the most recent log
+    let latest_log = load_log(&logs[0])?;
+
+    // Count restorable items (successful, non-permanent deletions)
+    let count = latest_log
+        .records
+        .iter()
+        .filter(|r| r.success && !r.permanent)
+        .count();
+
+    Ok(count)
+}
 
 /// Restore files from the most recent deletion session
 pub fn restore_last(output_mode: crate::output::OutputMode) -> Result<RestoreResult> {
+    restore_last_with_progress(output_mode, None)
+}
+
+/// Restore files from the most recent deletion session with progress callback
+pub fn restore_last_with_progress(
+    output_mode: crate::output::OutputMode,
+    progress_callback: Option<RestoreProgressCallback>,
+) -> Result<RestoreResult> {
     let logs = list_logs()?;
 
     if logs.is_empty() {
@@ -20,7 +53,21 @@ pub fn restore_last(output_mode: crate::output::OutputMode) -> Result<RestoreRes
 
     // Get the most recent log
     let latest_log = load_log(&logs[0])?;
-    restore_from_log(&latest_log, output_mode)
+    restore_from_log_with_progress(&latest_log, output_mode, progress_callback)
+}
+
+/// Normalize a path for comparison (handles case-insensitive matching on Windows)
+pub fn normalize_path_for_comparison(path: &str) -> String {
+    // On Windows, paths are case-insensitive, so we normalize to lowercase
+    // Also normalize separators and remove trailing separators
+    #[cfg(windows)]
+    {
+        path.replace('\\', "/").to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_string()
+    }
 }
 
 /// Restore files from a specific deletion log
@@ -28,19 +75,37 @@ pub fn restore_from_log(
     log: &DeletionLog,
     output_mode: crate::output::OutputMode,
 ) -> Result<RestoreResult> {
+    restore_from_log_with_progress(log, output_mode, None)
+}
+
+/// Restore files from a specific deletion log with progress callback
+pub fn restore_from_log_with_progress(
+    log: &DeletionLog,
+    output_mode: crate::output::OutputMode,
+    mut progress_callback: Option<RestoreProgressCallback>,
+) -> Result<RestoreResult> {
     let mut result = RestoreResult::default();
 
     // Get current Recycle Bin contents
     let recycle_bin_items = os_limited::list().context("Failed to list Recycle Bin contents")?;
 
+    // Count total items to restore
+    let total_to_restore = log
+        .records
+        .iter()
+        .filter(|r| r.success && !r.permanent)
+        .count();
+
     // Create a map of Recycle Bin items by original path
     // Windows Recycle Bin stores files with their original paths in metadata
+    // Use normalized paths for better matching
     let mut bin_map: std::collections::HashMap<String, &trash::TrashItem> =
         std::collections::HashMap::new();
     for item in &recycle_bin_items {
         // Try to match by original parent + name
         let original_path = item.original_parent.join(&item.name);
-        bin_map.insert(original_path.display().to_string().to_lowercase(), item);
+        let normalized = normalize_path_for_comparison(&original_path.display().to_string());
+        bin_map.insert(normalized, item);
     }
 
     // Try to restore each successful deletion record
@@ -50,10 +115,22 @@ pub fn restore_from_log(
             continue;
         }
 
-        let path_str = record.path.to_lowercase();
+        let record_path = PathBuf::from(&record.path);
+        let normalized_record_path = normalize_path_for_comparison(&record.path);
 
-        // Try to find in Recycle Bin
-        if let Some(trash_item) = bin_map.get(&path_str) {
+        // Update progress callback
+        if let Some(ref mut callback) = progress_callback {
+            callback(
+                Some(&record_path),
+                result.restored,
+                total_to_restore,
+                result.errors,
+                result.not_found,
+            )?;
+        }
+
+        // Try to find in Recycle Bin using normalized path
+        if let Some(trash_item) = bin_map.get(&normalized_record_path) {
             match restore_file(trash_item) {
                 Ok(()) => {
                     result.restored += 1;
@@ -89,6 +166,17 @@ pub fn restore_from_log(
                 );
             }
         }
+    }
+
+    // Final progress update
+    if let Some(ref mut callback) = progress_callback {
+        callback(
+            None,
+            result.restored,
+            total_to_restore,
+            result.errors,
+            result.not_found,
+        )?;
     }
 
     Ok(result)
@@ -170,7 +258,7 @@ pub fn restore_path(path: &Path, output_mode: crate::output::OutputMode) -> Resu
 }
 
 /// Restore a single file from Recycle Bin
-fn restore_file(item: &trash::TrashItem) -> Result<()> {
+pub fn restore_file(item: &trash::TrashItem) -> Result<()> {
     let dest = item.original_parent.join(&item.name);
 
     // Create parent directory if it doesn't exist
@@ -242,9 +330,13 @@ mod tests {
 
         let summary = result.summary();
         eprintln!("Actual summary: '{}'", summary);
-        
+
         // Check that all expected values are present
-        assert!(summary.contains("5"), "Summary should contain '5': {}", summary);
+        assert!(
+            summary.contains("5"),
+            "Summary should contain '5': {}",
+            summary
+        );
         // bytesize::to_string with binary_units=true may format as "1.0 MiB", "1 MiB", or similar
         // Check for the unit and that size representation is present
         assert!(
@@ -252,7 +344,15 @@ mod tests {
             "Summary should contain size unit (MiB or MB): {}",
             summary
         );
-        assert!(summary.contains("1"), "Summary should contain '1': {}", summary);
-        assert!(summary.contains("2"), "Summary should contain '2': {}", summary);
+        assert!(
+            summary.contains("1"),
+            "Summary should contain '1': {}",
+            summary
+        );
+        assert!(
+            summary.contains("2"),
+            "Summary should contain '2': {}",
+            summary
+        );
     }
 }

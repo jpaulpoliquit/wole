@@ -76,6 +76,7 @@ pub enum Screen {
         errors: usize,
     },
     Restore {
+        progress: Option<RestoreProgress>,
         result: Option<RestoreResult>,
     },
     DiskInsights {
@@ -123,6 +124,17 @@ pub struct CleanProgress {
     pub cleaned: u64,
     pub total: u64,
     pub errors: usize,
+}
+
+/// Progress tracking for restoration
+#[derive(Debug, Clone)]
+pub struct RestoreProgress {
+    pub current_path: Option<PathBuf>,
+    pub restored: usize,
+    pub total: usize,
+    pub errors: usize,
+    pub not_found: usize,
+    pub restored_bytes: u64,
 }
 
 /// Category selection state

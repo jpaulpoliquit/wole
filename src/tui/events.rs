@@ -404,7 +404,10 @@ fn handle_dashboard_event(
                 }
                 3 => {
                     // Restore action
-                    app_state.screen = crate::tui::state::Screen::Restore { result: None };
+                    app_state.screen = crate::tui::state::Screen::Restore {
+                        progress: None,
+                        result: None,
+                    };
                 }
                 4 => {
                     // Config action - show config screen

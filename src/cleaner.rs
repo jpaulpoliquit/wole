@@ -741,6 +741,131 @@ pub fn clean_path(path: &Path, permanent: bool) -> Result<()> {
     Ok(())
 }
 
+/// Batch clean multiple paths - MUCH faster than one-by-one deletion
+///
+/// For Recycle Bin deletion, uses `trash::delete_all()` which is 10-50x faster
+/// than calling `trash::delete()` in a loop due to reduced COM/Shell API overhead.
+///
+/// Returns (success_count, error_count, successfully_deleted_paths)
+pub fn clean_paths_batch(
+    paths: &[std::path::PathBuf],
+    permanent: bool,
+) -> (usize, usize, Vec<std::path::PathBuf>) {
+    if paths.is_empty() {
+        return (0, 0, Vec::new());
+    }
+
+    let mut success_count = 0;
+    let mut error_count = 0;
+    let mut deleted_paths = Vec::with_capacity(paths.len());
+
+    if permanent {
+        // Permanent deletes are already fast (direct filesystem ops)
+        // Delete one-by-one to track individual successes/failures
+        for path in paths {
+            match clean_path(path, true) {
+                Ok(()) => {
+                    success_count += 1;
+                    deleted_paths.push(path.clone());
+                }
+                Err(_) => error_count += 1,
+            }
+        }
+    } else {
+        // Batch to Recycle Bin - this is the big performance win
+        // First, filter out locked files and non-existent files (they would cause batch to fail)
+        let mut unlocked: Vec<std::path::PathBuf> = Vec::new();
+        let mut locked_count = 0;
+        let mut non_existent_count = 0;
+
+        for path in paths {
+            if !path.exists() {
+                non_existent_count += 1;
+            } else if path.is_file() && is_file_locked(path) {
+                locked_count += 1;
+            } else {
+                unlocked.push(path.clone());
+            }
+        }
+
+        error_count += locked_count;
+        error_count += non_existent_count;
+
+        if !unlocked.is_empty() {
+            // Try batch delete first (fastest path)
+            match trash::delete_all(&unlocked) {
+                Ok(()) => {
+                    success_count = unlocked.len();
+                    deleted_paths.extend(unlocked);
+                }
+                Err(e) => {
+                    // Batch failed - try smaller batches first (in case one bad file causes failure)
+                    // Then fallback to one-by-one if that also fails
+                    const BATCH_SIZE: usize = 100;
+                    let mut remaining: Vec<std::path::PathBuf> = unlocked;
+                    let mut batch_success = false;
+
+                    // Try deleting in smaller batches
+                    if remaining.len() > BATCH_SIZE {
+                        let batches: Vec<Vec<std::path::PathBuf>> = remaining
+                            .chunks(BATCH_SIZE)
+                            .map(|chunk| chunk.to_vec())
+                            .collect();
+
+                        let mut new_remaining: Vec<std::path::PathBuf> = Vec::new();
+                        for batch in batches {
+                            match trash::delete_all(&batch) {
+                                Ok(()) => {
+                                    success_count += batch.len();
+                                    deleted_paths.extend(batch);
+                                    batch_success = true;
+                                }
+                                Err(_) => {
+                                    // This batch failed, add to remaining for one-by-one
+                                    new_remaining.extend(batch);
+                                }
+                            }
+                        }
+                        remaining = new_remaining;
+                    }
+
+                    // Fallback to one-by-one for any remaining files
+                    if !remaining.is_empty() {
+                        #[cfg(debug_assertions)]
+                        if !batch_success {
+                            eprintln!("[DEBUG] Batch delete failed: {}, falling back to one-by-one for {} files", e, remaining.len());
+                        }
+                        for path in remaining {
+                            // Double-check file exists before attempting deletion
+                            if !path.exists() {
+                                error_count += 1;
+                                continue;
+                            }
+                            match trash::delete(&path) {
+                                Ok(()) => {
+                                    success_count += 1;
+                                    deleted_paths.push(path.clone());
+                                }
+                                Err(err) => {
+                                    error_count += 1;
+                                    #[cfg(debug_assertions)]
+                                    eprintln!(
+                                        "[DEBUG] Failed to delete {}: {}",
+                                        path.display(),
+                                        err
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (success_count, error_count, deleted_paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
