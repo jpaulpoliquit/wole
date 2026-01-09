@@ -5,6 +5,9 @@ mod output;
 mod categories;
 mod project;
 mod git;
+mod size;
+mod config;
+mod progress;
 
 use anyhow::Result;
 use cli::Cli;

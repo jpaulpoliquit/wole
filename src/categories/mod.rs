@@ -2,3 +2,6 @@ pub mod cache;
 pub mod temp;
 pub mod trash;
 pub mod build;
+pub mod downloads;
+pub mod large;
+pub mod old;

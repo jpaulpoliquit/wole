@@ -47,6 +47,53 @@ install.bat
 2. Extract `sweeper.exe` to a directory in your PATH (e.g., `%LOCALAPPDATA%\sweeper\bin`)
 3. Add that directory to your PATH environment variable
 
+## Building from Source
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (latest stable)
+- Visual Studio Build Tools with "C++ build tools" workload (for Windows MSVC target)
+
+### Build Instructions
+
+**PowerShell (Recommended):**
+```powershell
+# Debug build
+.\build\build.ps1
+
+# Release build
+.\build\build.ps1 -Release
+```
+
+**Command Prompt:**
+```cmd
+cargo build
+cargo build --release
+```
+
+**Git Bash:**
+```bash
+# Use the build script (recommended - handles PATH automatically)
+./build/build.sh
+
+# Or manually fix PATH first, then build
+export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "Git/usr/bin" | grep -v "Git/cmd" | grep -v "Git/mingw64/bin" | tr '\n' ':' | sed 's/:$//')
+unalias link 2>/dev/null || true
+cargo build
+```
+
+**⚠️ Important:** If you get `link: extra operand` errors in Git Bash, use PowerShell instead:
+```powershell
+.\build\build.ps1
+```
+
+**Note:** If you encounter linker errors in Git Bash (`link: extra operand`), use PowerShell or CMD instead. See [build/BUILD_TROUBLESHOOTING.md](build/BUILD_TROUBLESHOOTING.md) for details.
+
+### Build Output
+
+- Debug: `target\debug\sweeper.exe`
+- Release: `target\release\sweeper.exe`
+
 ## Quick Start
 
 ```bash
@@ -81,6 +128,10 @@ Config file: `%APPDATA%\sweeper\config.toml` (coming in Phase 3)
 active_threshold_days = 30
 skip_if_uncommitted_changes = true
 ```
+
+## Troubleshooting
+
+If you encounter build issues, see [build/BUILD_TROUBLESHOOTING.md](build/BUILD_TROUBLESHOOTING.md) for common solutions.
 
 ## License
 

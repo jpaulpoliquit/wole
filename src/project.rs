@@ -149,7 +149,7 @@ pub fn find_project_roots(root: &Path) -> Vec<PathBuf> {
         }
         
         // Check if this is a project root
-        if let Some(project_type) = detect_project_type(path) {
+        if let Some(_project_type) = detect_project_type(path) {
             // Make sure we haven't already added this project
             if !seen.contains(path) {
                 projects.push(path.to_path_buf());

@@ -16,7 +16,7 @@ target/
 .cursor/
 plans/
 *.code-workspace
-
+build/
 # OS-specific files
 .DS_Store
 .DS_Store?
@@ -30,6 +30,9 @@ Desktop.ini
 # Project-specific
 artifacts/
 *.log
+
+# Build scripts directory (for releases - users don't need these)
+# Note: build/ directory is tracked for developers, but can be excluded in release packages
 
 # Backup files
 *.bak

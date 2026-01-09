@@ -1,5 +1,16 @@
+use colored::*;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::collections::HashMap;
+
+/// Output verbosity mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Quiet,       // Only errors
+    Normal,      // Standard output
+    Verbose,     // More details
+    VeryVerbose, // All details including file paths
+}
 
 #[derive(Default, Debug, Clone)]
 pub struct ScanResults {
@@ -7,6 +18,9 @@ pub struct ScanResults {
     pub temp: CategoryResult,
     pub trash: CategoryResult,
     pub build: CategoryResult,
+    pub downloads: CategoryResult,
+    pub large: CategoryResult,
+    pub old: CategoryResult,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -36,6 +50,9 @@ struct JsonCategories {
     temp: JsonCategory,
     trash: JsonCategory,
     build: JsonCategory,
+    downloads: JsonCategory,
+    large: JsonCategory,
+    old: JsonCategory,
 }
 
 #[derive(Serialize)]
@@ -53,72 +70,98 @@ struct JsonSummary {
     total_human: String,
 }
 
-pub fn print_human(results: &ScanResults) {
-    println!("sweeper Scan Results");
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+pub fn print_human(results: &ScanResults, mode: OutputMode) {
+    if mode == OutputMode::Quiet {
+        return;
+    }
+    
     println!();
-    println!("{:<15} {:>8} {:>12} {:>20}", "Category", "Items", "Size", "Status");
-    println!("{}", "─".repeat(60));
+    println!("{}", "🧹 Sweeper Scan Results".bold());
+    println!("{}", "━".repeat(60).dimmed());
+    println!();
+    println!("{:<15} {:>8} {:>12} {:>20}", 
+        "Category".bold(), 
+        "Items".bold(), 
+        "Size".bold(), 
+        "Status".bold());
+    println!("{}", "─".repeat(60).dimmed());
     
-    if results.cache.items > 0 {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            "Cache",
-            results.cache.items,
-            results.cache.size_human(),
-            "✓ Safe to clean"
-        );
-    }
+    let categories = [
+        ("Cache", &results.cache, "✓ Safe to clean"),
+        ("Temp", &results.temp, "✓ Safe to clean"),
+        ("Trash", &results.trash, "✓ Safe to clean"),
+        ("Build", &results.build, "✓ Inactive projects"),
+        ("Downloads", &results.downloads, "✓ Old files"),
+        ("Large", &results.large, "⚠ Review suggested"),
+        ("Old", &results.old, "⚠ Review suggested"),
+    ];
     
-    if results.temp.items > 0 {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            "Temp",
-            results.temp.items,
-            results.temp.size_human(),
-            "✓ Safe to clean"
-        );
-    }
-    
-    if results.trash.items > 0 {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            "Trash",
-            results.trash.items,
-            results.trash.size_human(),
-            "✓ Safe to clean"
-        );
-    }
-    
-    if results.build.items > 0 {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            "Build",
-            results.build.items,
-            results.build.size_human(),
-            "✓ Inactive projects"
-        );
+    for (name, result, status) in categories {
+        if result.items > 0 {
+            let status_colored = if status.starts_with("✓") { 
+                status.green() 
+            } else { 
+                status.yellow() 
+            };
+            println!(
+                "{:<15} {:>8} {:>12} {:>20}",
+                name.cyan(),
+                result.items,
+                result.size_human(),
+                status_colored
+            );
+            
+            // In verbose mode, show first few paths
+            if mode == OutputMode::Verbose && !result.paths.is_empty() {
+                let show_count = std::cmp::min(3, result.paths.len());
+                for path in result.paths.iter().take(show_count) {
+                    println!("  {}", path.display().to_string().dimmed());
+                }
+                if result.paths.len() > show_count {
+                    println!("  {} ... and {} more", "".dimmed(), result.paths.len() - show_count);
+                }
+            }
+            
+            // In very verbose mode, show all paths
+            if mode == OutputMode::VeryVerbose {
+                for path in &result.paths {
+                    println!("  {}", path.display().to_string().dimmed());
+                }
+            }
+        }
     }
     
     let total_items = results.cache.items
         + results.temp.items
         + results.trash.items
-        + results.build.items;
+        + results.build.items
+        + results.downloads.items
+        + results.large.items
+        + results.old.items;
     let total_bytes = results.cache.size_bytes
         + results.temp.size_bytes
         + results.trash.size_bytes
-        + results.build.size_bytes;
+        + results.build.size_bytes
+        + results.downloads.size_bytes
+        + results.large.size_bytes
+        + results.old.size_bytes;
     
-    println!("{}", "─".repeat(60));
-    println!(
-        "{:<15} {:>8} {:>12} {:>20}",
-        "Total",
-        total_items,
-        bytesize::to_string(total_bytes, true),
-        "Reclaimable"
-    );
+    println!("{}", "─".repeat(60).dimmed());
+    
+    if total_items == 0 {
+        println!("{}", "✨ Your system is clean! No reclaimable space found.".green());
+    } else {
+        println!(
+            "{:<15} {:>8} {:>12} {:>20}",
+            "Total".bold(),
+            total_items.to_string().bold(),
+            bytesize::to_string(total_bytes, true).bold(),
+            "Reclaimable".green()
+        );
+        println!();
+        println!("💡 Run {} to remove these files.", "sweeper clean --all".cyan());
+    }
     println!();
-    println!("Run 'sweeper clean' to remove these files.");
 }
 
 pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
@@ -158,21 +201,54 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
+            downloads: JsonCategory {
+                items: results.downloads.items,
+                size_bytes: results.downloads.size_bytes,
+                size_human: results.downloads.size_human(),
+                paths: results.downloads.paths.iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            },
+            large: JsonCategory {
+                items: results.large.items,
+                size_bytes: results.large.size_bytes,
+                size_human: results.large.size_human(),
+                paths: results.large.paths.iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            },
+            old: JsonCategory {
+                items: results.old.items,
+                size_bytes: results.old.size_bytes,
+                size_human: results.old.size_human(),
+                paths: results.old.paths.iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            },
         },
         summary: JsonSummary {
             total_items: results.cache.items
                 + results.temp.items
                 + results.trash.items
-                + results.build.items,
+                + results.build.items
+                + results.downloads.items
+                + results.large.items
+                + results.old.items,
             total_bytes: results.cache.size_bytes
                 + results.temp.size_bytes
                 + results.trash.size_bytes
-                + results.build.size_bytes,
+                + results.build.size_bytes
+                + results.downloads.size_bytes
+                + results.large.size_bytes
+                + results.old.size_bytes,
             total_human: bytesize::to_string(
                 results.cache.size_bytes
                     + results.temp.size_bytes
                     + results.trash.size_bytes
-                    + results.build.size_bytes,
+                    + results.build.size_bytes
+                    + results.downloads.size_bytes
+                    + results.large.size_bytes
+                    + results.old.size_bytes,
                 true,
             ),
         },
@@ -180,4 +256,164 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
     
     println!("{}", serde_json::to_string_pretty(&json_results)?);
     Ok(())
+}
+
+pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
+    if mode == OutputMode::Quiet {
+        return;
+    }
+    
+    println!();
+    println!("{}", "📊 Detailed Analysis".bold());
+    println!("{}", "━".repeat(60).dimmed());
+    println!();
+    
+    let categories = [
+        ("Cache", &results.cache),
+        ("Temp", &results.temp),
+        ("Trash", &results.trash),
+        ("Build", &results.build),
+        ("Downloads", &results.downloads),
+        ("Large", &results.large),
+        ("Old", &results.old),
+    ];
+    
+    for (name, result) in categories {
+        if result.items > 0 {
+            println!("{}", format!("{} ({})", name.bold().cyan(), result.size_human()).bold());
+            println!("{}", "─".repeat(60).dimmed());
+            
+            // Show all paths with sizes
+            let mut paths_with_sizes: Vec<(PathBuf, u64)> = result.paths.iter()
+                .filter_map(|p| {
+                    std::fs::metadata(p).ok()
+                        .map(|m| (p.clone(), m.len()))
+                })
+                .collect();
+            
+            // Sort by size descending
+            paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+            
+            // Show top 10 or all if less than 10
+            let show_count = std::cmp::min(10, paths_with_sizes.len());
+            for (path, size) in paths_with_sizes.iter().take(show_count) {
+                println!("  {}  {}", 
+                    bytesize::to_string(*size, true).dimmed(),
+                    path.display().to_string().cyan()
+                );
+            }
+            
+            if paths_with_sizes.len() > show_count {
+                println!("  {} ... and {} more files", 
+                    "".dimmed(), 
+                    paths_with_sizes.len() - show_count
+                );
+            }
+            
+            // Special handling for downloads: show extension breakdown
+            if name == "Downloads" && !result.paths.is_empty() {
+                println!();
+                println!("  {} Extension breakdown:", "📁".dimmed());
+                let mut ext_counts: HashMap<String, (usize, u64)> = HashMap::new();
+                
+                for path in &result.paths {
+                    if let Some(ext) = path.extension() {
+                        let ext_str = ext.to_string_lossy().to_lowercase();
+                        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                        let entry = ext_counts.entry(ext_str).or_insert((0, 0));
+                        entry.0 += 1;
+                        entry.1 += size;
+                    } else {
+                        let entry = ext_counts.entry("(no extension)".to_string()).or_insert((0, 0));
+                        entry.0 += 1;
+                        entry.1 += std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    }
+                }
+                
+                let mut ext_vec: Vec<(String, usize, u64)> = ext_counts.iter()
+                    .map(|(k, (count, size))| (k.clone(), *count, *size))
+                    .collect();
+                ext_vec.sort_by(|a, b| b.2.cmp(&a.2));
+                
+                for (ext, count, size) in ext_vec.iter().take(5) {
+                    println!("    .{}: {} files ({})", 
+                        ext.cyan(),
+                        count.to_string().bold(),
+                        bytesize::to_string(*size, true).dimmed()
+                    );
+                }
+            }
+            
+            // Special handling for old files: show age info
+            if name == "Old" && !result.paths.is_empty() {
+                println!();
+                println!("  {} Age breakdown:", "📅".dimmed());
+                let mut age_groups: HashMap<String, (usize, u64)> = HashMap::new();
+                
+                for path in &result.paths {
+                    if let Ok(metadata) = std::fs::metadata(path) {
+                        if let Ok(accessed) = metadata.accessed() {
+                            let age_days = accessed.elapsed()
+                                .map(|d| d.as_secs() / 86400)
+                                .unwrap_or(0);
+                            
+                            let age_group = if age_days < 90 {
+                                "< 90 days".to_string()
+                            } else if age_days < 180 {
+                                "90-180 days".to_string()
+                            } else if age_days < 365 {
+                                "180-365 days".to_string()
+                            } else {
+                                "> 1 year".to_string()
+                            };
+                            
+                            let size = metadata.len();
+                            let entry = age_groups.entry(age_group).or_insert((0, 0));
+                            entry.0 += 1;
+                            entry.1 += size;
+                        }
+                    }
+                }
+                
+                let mut age_vec: Vec<(String, usize, u64)> = age_groups.iter()
+                    .map(|(k, (count, size))| (k.clone(), *count, *size))
+                    .collect();
+                age_vec.sort_by(|a, b| b.2.cmp(&a.2));
+                
+                for (age, count, size) in &age_vec {
+                    println!("    {}: {} files ({})", 
+                        age.cyan(),
+                        count.to_string().bold(),
+                        bytesize::to_string(*size, true).dimmed()
+                    );
+                }
+            }
+            
+            println!();
+        }
+    }
+    
+    let total_items = results.cache.items
+        + results.temp.items
+        + results.trash.items
+        + results.build.items
+        + results.downloads.items
+        + results.large.items
+        + results.old.items;
+    let total_bytes = results.cache.size_bytes
+        + results.temp.size_bytes
+        + results.trash.size_bytes
+        + results.build.size_bytes
+        + results.downloads.size_bytes
+        + results.large.size_bytes
+        + results.old.size_bytes;
+    
+    println!("{}", "━".repeat(60).dimmed());
+    println!(
+        "{} Total: {} items, {} reclaimable",
+        "📊".bold(),
+        total_items.to_string().bold().cyan(),
+        bytesize::to_string(total_bytes, true).bold().green()
+    );
+    println!();
 }
