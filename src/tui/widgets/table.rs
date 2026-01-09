@@ -13,6 +13,7 @@ use ratatui::{
 };
 
 /// Render the results table
+#[allow(clippy::too_many_arguments)]
 pub fn render_results_table(
     f: &mut Frame,
     area: Rect,

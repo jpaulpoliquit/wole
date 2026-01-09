@@ -50,7 +50,7 @@ pub fn safe_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
         Ok(m) => Ok(m),
         Err(e) if e.raw_os_error() == Some(3) => {
             // ERROR_PATH_NOT_FOUND - try with long path prefix
-            std::fs::metadata(&to_long_path(path))
+            std::fs::metadata(to_long_path(path))
         }
         Err(e) => Err(e),
     }
@@ -66,7 +66,7 @@ pub fn safe_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
 pub fn safe_symlink_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
     match std::fs::symlink_metadata(path) {
         Ok(m) => Ok(m),
-        Err(e) if e.raw_os_error() == Some(3) => std::fs::symlink_metadata(&to_long_path(path)),
+        Err(e) if e.raw_os_error() == Some(3) => std::fs::symlink_metadata(to_long_path(path)),
         Err(e) => Err(e),
     }
 }
@@ -81,7 +81,7 @@ pub fn safe_symlink_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> 
 pub fn safe_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
     match std::fs::read_dir(path) {
         Ok(rd) => Ok(rd),
-        Err(e) if e.raw_os_error() == Some(3) => std::fs::read_dir(&to_long_path(path)),
+        Err(e) if e.raw_os_error() == Some(3) => std::fs::read_dir(to_long_path(path)),
         Err(e) => Err(e),
     }
 }
@@ -96,7 +96,7 @@ pub fn safe_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
 pub fn safe_remove_file(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
-        Err(e) if e.raw_os_error() == Some(3) => std::fs::remove_file(&to_long_path(path)),
+        Err(e) if e.raw_os_error() == Some(3) => std::fs::remove_file(to_long_path(path)),
         Err(e) => Err(e),
     }
 }
@@ -111,7 +111,7 @@ pub fn safe_remove_file(path: &Path) -> std::io::Result<()> {
 pub fn safe_remove_dir_all(path: &Path) -> std::io::Result<()> {
     match std::fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
-        Err(e) if e.raw_os_error() == Some(3) => std::fs::remove_dir_all(&to_long_path(path)),
+        Err(e) if e.raw_os_error() == Some(3) => std::fs::remove_dir_all(to_long_path(path)),
         Err(e) => Err(e),
     }
 }
@@ -480,7 +480,7 @@ pub fn to_relative_path(path: &Path, base: &Path) -> String {
         .collect();
     if components.len() > 3 {
         format!(".../{}", components[components.len() - 2..].join("/"))
-    } else if components.len() > 0 {
+    } else if !components.is_empty() {
         components.join("/")
     } else {
         path.display().to_string()
@@ -620,7 +620,7 @@ mod tests {
         for entry in WalkDir::new(temp_dir.path())
             .max_depth(2) // Increased from 1 to allow subdirectories but still safe
             .into_iter()
-            .filter_entry(|e| !should_skip_walk(e))
+            .filter_entry(|e| !should_skip_entry(e.path()))
         {
             if let Ok(e) = entry {
                 if let Some(name) = e.path().file_name() {

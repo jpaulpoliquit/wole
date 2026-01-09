@@ -153,7 +153,7 @@ pub fn scan_with_config(
             // Use configured scan paths
             cfg.scan_paths
                 .iter()
-                .map(|s| PathBuf::from(s))
+                .map(PathBuf::from)
                 .collect::<Vec<PathBuf>>()
         } else {
             // Fall back to root argument
@@ -280,7 +280,7 @@ pub fn scan_with_config(
                         let size = metadata.len();
                         if size > 0 {
                             let mut groups = groups.lock().unwrap();
-                            groups.entry(size).or_insert_with(Vec::new).push(path);
+                            groups.entry(size).or_default().push(path);
                         }
                     }
                 });
@@ -317,7 +317,7 @@ pub fn scan_with_config(
     for (partial_hash, path) in partial_hash_results {
         partial_hash_groups
             .entry(partial_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(path);
     }
 
@@ -352,7 +352,7 @@ pub fn scan_with_config(
     for (full_hash, path) in full_hash_results {
         full_hash_groups
             .entry(full_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(path);
     }
 

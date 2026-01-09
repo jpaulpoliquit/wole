@@ -216,12 +216,10 @@ impl AppState {
                     let onedrive_docs = base.join("OneDrive").join("Documents");
                     if onedrive_docs.exists() {
                         onedrive_docs
+                    } else if base.join("Documents").exists() {
+                        base.join("Documents")
                     } else {
-                        if base.join("Documents").exists() {
-                            base.join("Documents")
-                        } else {
-                            base
-                        }
+                        base
                     }
                 })
                 .unwrap_or_else(|| PathBuf::from("."))
@@ -474,7 +472,7 @@ impl AppState {
                                     // Group by project only (combine all artifact types)
                                     project_map
                                         .entry((project_path, project_name, is_active))
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(item_idx);
                                 } else {
                                     // Fallback: use parent folder
@@ -482,7 +480,7 @@ impl AppState {
                                         let parent_path = item.path.parent().unwrap().to_path_buf();
                                         project_map
                                             .entry((parent_path, folder_name, false))
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(item_idx);
                                     } else {
                                         ungrouped_items.push(item_idx);
@@ -576,7 +574,7 @@ impl AppState {
                                 let parent_path = parent.to_path_buf();
                                 dir_to_items
                                     .entry(parent_path.clone())
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(*item_idx);
                                 current = parent_path;
                             }
@@ -650,14 +648,14 @@ impl AppState {
 
                                         subfolder_map
                                             .entry(subdir)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(*item_idx);
                                     } else {
                                         // Item is not under common parent - group separately
                                         let folder_name = item_parent.display().to_string();
                                         folder_map
                                             .entry(folder_name)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(*item_idx);
                                     }
                                 } else {
@@ -670,7 +668,7 @@ impl AppState {
                                 let folder_name = common_parent.display().to_string();
                                 folder_map
                                     .entry(folder_name)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .extend(direct_items);
                             }
 
@@ -679,7 +677,7 @@ impl AppState {
                                 let folder_name = subdir_path.display().to_string();
                                 folder_map
                                     .entry(folder_name)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .extend(subdir_items);
                             }
                         } else {
@@ -690,7 +688,7 @@ impl AppState {
                                 if let Some(parent) = path.parent() {
                                     parent_to_items
                                         .entry(parent.to_path_buf())
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(*item_idx);
                                 } else {
                                     ungrouped_items.push(*item_idx);
@@ -725,7 +723,7 @@ impl AppState {
                                         if suffix.chars().any(|c| c.is_ascii_digit()) {
                                             prefix_to_groups
                                                 .entry(potential_prefix.to_string())
-                                                .or_insert_with(Vec::new)
+                                                .or_default()
                                                 .push((parent_path.clone(), items.clone()));
                                             found_prefix = true;
                                         }
@@ -744,7 +742,7 @@ impl AppState {
                                             if suffix.chars().any(|c| c.is_ascii_digit()) {
                                                 prefix_to_groups
                                                     .entry(potential_prefix.to_string())
-                                                    .or_insert_with(Vec::new)
+                                                    .or_default()
                                                     .push((parent_path.clone(), items.clone()));
                                                 found_prefix = true;
                                             }
@@ -778,7 +776,7 @@ impl AppState {
 
                                             folder_map
                                                 .entry(group_folder_name)
-                                                .or_insert_with(Vec::new)
+                                                .or_default()
                                                 .extend(all_prefix_items);
                                         } else {
                                             // No common parent, add as standalone
@@ -786,7 +784,7 @@ impl AppState {
                                                 let folder_name = parent_path.display().to_string();
                                                 folder_map
                                                     .entry(folder_name)
-                                                    .or_insert_with(Vec::new)
+                                                    .or_default()
                                                     .extend(items);
                                             }
                                         }
@@ -799,7 +797,7 @@ impl AppState {
                                         let folder_name = parent_path.display().to_string();
                                         folder_map
                                             .entry(folder_name)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .extend(items);
                                     }
                                 }
@@ -810,7 +808,7 @@ impl AppState {
                                 let folder_name = parent_path.display().to_string();
                                 folder_map
                                     .entry(folder_name)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .extend(items);
                             }
                         }
@@ -1254,7 +1252,7 @@ impl AppState {
             if let Some(item) = self.all_items.get(item_idx) {
                 category_map
                     .entry(item.category.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(item_idx);
             }
         }
@@ -1336,7 +1334,7 @@ impl AppState {
                             {
                                 project_map
                                     .entry((project_path, project_name, is_active))
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(item_idx);
                             } else {
                                 ungrouped_items.push(item_idx);
@@ -1431,7 +1429,7 @@ impl AppState {
                                 let parent_path = parent.to_path_buf();
                                 dir_to_items
                                     .entry(parent_path.clone())
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(*item_idx);
                                 current = parent_path;
                             }
@@ -1501,14 +1499,14 @@ impl AppState {
 
                                         subfolder_map
                                             .entry(subdir)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(*item_idx);
                                     } else {
                                         // Item is not under common parent - group separately
                                         let folder_name = item_parent.display().to_string();
                                         folder_map
                                             .entry(folder_name)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push(*item_idx);
                                     }
                                 } else {
@@ -1521,7 +1519,7 @@ impl AppState {
                                 let folder_name = common_parent.display().to_string();
                                 folder_map
                                     .entry(folder_name)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .extend(direct_items);
                             }
 
@@ -1530,7 +1528,7 @@ impl AppState {
                                 let folder_name = subdir_path.display().to_string();
                                 folder_map
                                     .entry(folder_name)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .extend(subdir_items);
                             }
                         } else {
@@ -1540,7 +1538,7 @@ impl AppState {
                                     let folder_name = parent.display().to_string();
                                     folder_map
                                         .entry(folder_name)
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(*item_idx);
                                 } else {
                                     ungrouped_items.push(*item_idx);
@@ -1681,7 +1679,7 @@ impl AppState {
             if let Some(item) = self.all_items.get(item_idx) {
                 category_map
                     .entry(item.category.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(item_idx);
             }
         }
@@ -1887,7 +1885,7 @@ impl AppState {
                             let parent_path = parent.to_path_buf();
                             dir_to_items
                                 .entry(parent_path.clone())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push(*item_idx);
                             current = parent_path;
                         }
@@ -1961,7 +1959,7 @@ impl AppState {
 
                                     subfolder_map
                                         .entry(subdir)
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(*item_idx);
                                 } else {
                                     // Item is not under common parent - group separately
@@ -1969,7 +1967,7 @@ impl AppState {
                                         crate::utils::to_relative_path(item_parent, &scan_path);
                                     folder_map
                                         .entry(folder_name)
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .push(*item_idx);
                                 }
                             } else {
@@ -1983,7 +1981,7 @@ impl AppState {
                                 crate::utils::to_relative_path(common_parent, &scan_path);
                             folder_map
                                 .entry(folder_name)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .extend(direct_items);
                         }
 
@@ -1993,7 +1991,7 @@ impl AppState {
                                 crate::utils::to_relative_path(&subdir_path, &scan_path);
                             folder_map
                                 .entry(folder_name)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .extend(subdir_items);
                         }
                     } else {
@@ -2004,7 +2002,7 @@ impl AppState {
                             if let Some(parent) = path.parent() {
                                 parent_to_items
                                     .entry(parent.to_path_buf())
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push(*item_idx);
                             } else {
                                 ungrouped_items.push(*item_idx);
@@ -2039,7 +2037,7 @@ impl AppState {
                                     if suffix.chars().any(|c| c.is_ascii_digit()) {
                                         prefix_to_groups
                                             .entry(potential_prefix.to_string())
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .push((parent_path.clone(), items.clone()));
                                         found_prefix = true;
                                     }
@@ -2056,7 +2054,7 @@ impl AppState {
                                         if suffix.chars().any(|c| c.is_ascii_digit()) {
                                             prefix_to_groups
                                                 .entry(potential_prefix.to_string())
-                                                .or_insert_with(Vec::new)
+                                                .or_default()
                                                 .push((parent_path.clone(), items.clone()));
                                             found_prefix = true;
                                         }
@@ -2091,7 +2089,7 @@ impl AppState {
 
                                         folder_map
                                             .entry(group_folder_name)
-                                            .or_insert_with(Vec::new)
+                                            .or_default()
                                             .extend(all_prefix_items);
                                     } else {
                                         // No common parent, add as standalone
@@ -2102,7 +2100,7 @@ impl AppState {
                                             );
                                             folder_map
                                                 .entry(folder_name)
-                                                .or_insert_with(Vec::new)
+                                                .or_default()
                                                 .extend(items);
                                         }
                                     }
@@ -2116,7 +2114,7 @@ impl AppState {
                                         crate::utils::to_relative_path(&parent_path, &scan_path);
                                     folder_map
                                         .entry(folder_name)
-                                        .or_insert_with(Vec::new)
+                                        .or_default()
                                         .extend(items);
                                 }
                             }
@@ -2128,7 +2126,7 @@ impl AppState {
                                 crate::utils::to_relative_path(&parent_path, &scan_path);
                             folder_map
                                 .entry(folder_name)
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .extend(items);
                         }
                     }

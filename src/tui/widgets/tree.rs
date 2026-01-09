@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::path::Path;
 use std::path::PathBuf;
 
 /// Render a simple directory tree view
@@ -16,7 +17,7 @@ pub fn render_tree(
     area: Rect,
     path: &PathBuf,
     size_bytes: u64,
-    base_path: &PathBuf,
+    base_path: &Path,
 ) {
     // For now, render a simplified tree view
     // In a full implementation, this would recursively build the tree

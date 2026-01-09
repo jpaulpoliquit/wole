@@ -102,7 +102,7 @@ pub fn scan_directory(path: &Path, max_depth: u8) -> Result<DiskInsights> {
                         if let Some(parent) = e.path().parent() {
                             dir_files
                                 .entry(parent.to_path_buf())
-                                .or_insert_with(Vec::new)
+                                .or_default()
                                 .push((e.path().to_path_buf(), size));
 
                             *dir_sizes.entry(parent.to_path_buf()).or_insert(0) += size;

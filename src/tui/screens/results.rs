@@ -522,8 +522,8 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         if normalized_path.starts_with(&normalized_folder) {
                             // Remove the folder path and the following separator
                             let remaining = &normalized_path[normalized_folder.len()..];
-                            path_str = if remaining.starts_with('/') {
-                                remaining[1..].to_string()
+                            path_str = if let Some(stripped) = remaining.strip_prefix('/') {
+                                stripped.to_string()
                             } else if remaining.is_empty() {
                                 // If the item path is exactly the folder path, show just the filename
                                 item.path

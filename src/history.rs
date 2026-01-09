@@ -234,7 +234,6 @@ pub fn load_log(path: &Path) -> Result<DeletionLog> {
 mod tests {
     use super::*;
     use std::path::Path;
-    use tempfile::TempDir;
 
     #[test]
     fn test_deletion_record_success() {

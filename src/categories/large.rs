@@ -1,5 +1,7 @@
 use crate::config::Config;
+use crate::git;
 use crate::output::CategoryResult;
+use crate::project;
 use crate::utils;
 use anyhow::{Context, Result};
 use jwalk::WalkDir;
@@ -166,8 +168,16 @@ fn scan_directory(
                 return;
             }
 
-            // NOTE: Skip is_project_active check during scan for performance
-            // This check is expensive (reads multiple files) and can be done post-scan if needed
+            // Skip files in active projects (using CACHED git lookup for performance)
+            // This is a critical safety check to prevent deletion of files from projects
+            // the user is actively working on
+            if let Some(project_root) = git::find_git_root_cached(&path) {
+                // Use project_age_days from config (defaults to 14 if not set)
+                let project_age_days = config_clone.thresholds.project_age_days;
+                if let Ok(true) = project::is_project_active(&project_root, project_age_days) {
+                    return; // Skip files from active projects
+                }
+            }
 
             let mut files_guard = found_files.lock().unwrap();
             files_guard.push((path, metadata.len()));

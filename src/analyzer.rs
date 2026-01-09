@@ -7,7 +7,7 @@ use crate::progress;
 use anyhow::Result;
 use rayon::prelude::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Category of cleanable files
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -105,14 +105,14 @@ pub trait Scanner: Send + Sync {
     fn category(&self) -> Category;
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>>;
 }
 
 /// Run all enabled scanners and aggregate results
-pub fn run_scan(path: &PathBuf, options: &ScanOptions, config: &Config) -> Result<ScanResult> {
+pub fn run_scan(path: &Path, options: &ScanOptions, config: &Config) -> Result<ScanResult> {
     // Clear git cache for fresh scan
     crate::git::clear_cache();
 
@@ -225,7 +225,7 @@ pub fn print_report(result: &ScanResult) {
 
     // Print header
     println!();
-    println!("{}", "Sweeper Scan Results");
+    println!("Sweeper Scan Results");
     println!("{}", "=".repeat(60));
     println!();
 
@@ -280,7 +280,7 @@ pub fn print_detailed_report(result: &ScanResult) {
     });
 
     println!();
-    println!("{}", "Detailed Analysis");
+    println!("Detailed Analysis");
     println!("{}", "=".repeat(60));
     println!();
 
@@ -308,7 +308,7 @@ pub fn print_detailed_report(result: &ScanResult) {
     println!("{}", "=".repeat(60));
     println!(
         "Total: {} items, {} reclaimable",
-        result.total_count().to_string(),
+        result.total_count(),
         format_size(result.total_size())
     );
     println!();
@@ -384,8 +384,8 @@ fn print_category_header(name: &str, size: u64, _count: usize) {
     println!("{}", "-".repeat(60));
 }
 
-fn print_file_entry(path: &PathBuf, size: u64, _depth: usize) {
-    println!("  {}  {}", format_size(size), path.display().to_string());
+fn print_file_entry(path: &Path, size: u64, _depth: usize) {
+    println!("  {}  {}", format_size(size), path.display());
 }
 
 // Scanner adapters that wrap existing category scan functions
@@ -402,7 +402,7 @@ impl Scanner for CacheScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -429,7 +429,7 @@ impl Scanner for AppCacheScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -456,7 +456,7 @@ impl Scanner for TempScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -483,7 +483,7 @@ impl Scanner for TrashScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -510,7 +510,7 @@ impl Scanner for BuildScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -542,7 +542,7 @@ impl Scanner for DownloadsScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -569,7 +569,7 @@ impl Scanner for LargeScannerAdapter {
 
     fn scan(
         &self,
-        _path: &PathBuf,
+        _path: &Path,
         options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -596,7 +596,7 @@ impl Scanner for OldScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -623,7 +623,7 @@ impl Scanner for BrowserScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -650,7 +650,7 @@ impl Scanner for SystemScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -677,7 +677,7 @@ impl Scanner for EmptyScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {
@@ -704,7 +704,7 @@ impl Scanner for DuplicatesScannerAdapter {
 
     fn scan(
         &self,
-        path: &PathBuf,
+        path: &Path,
         _options: &ScanOptions,
         config: &Config,
     ) -> Result<Vec<CleanableFile>> {

@@ -311,6 +311,7 @@ mod tests {
         let temp_dir = create_test_dir();
         let options = ScanOptions {
             cache: false,
+            app_cache: false,
             temp: false,
             trash: false,
             build: false,

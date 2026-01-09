@@ -173,15 +173,13 @@ fn handle_results_click(app_state: &mut AppState, row: u16, _col: u16) -> EventR
 
                 // Check if it is a header row, if so toggle expansion
                 let rows = app_state.results_rows();
-                if let Some(r) = rows.get(data_index) {
-                    match r {
-                        crate::tui::state::ResultsRow::CategoryHeader { .. }
-                        | crate::tui::state::ResultsRow::FolderHeader { .. } => {
-                            // Toggle expansion on click
-                            handle_results_event(app_state, KeyCode::Enter, KeyModifiers::empty());
-                        }
-                        _ => {}
-                    }
+                if let Some(
+                    crate::tui::state::ResultsRow::CategoryHeader { .. }
+                    | crate::tui::state::ResultsRow::FolderHeader { .. },
+                ) = rows.get(data_index)
+                {
+                    // Toggle expansion on click
+                    handle_results_event(app_state, KeyCode::Enter, KeyModifiers::empty());
                 }
             }
         }
@@ -317,16 +315,13 @@ fn handle_dashboard_event(
         }
         KeyCode::Enter => {
             // Based on action cursor, perform different actions
-            match app_state.action_cursor {
-                0..=2 => {
-                    // Scan/Clean/Analyze require at least one category to be enabled
-                    if !app_state.categories.iter().any(|c| c.enabled) {
-                        app_state.dashboard_message =
-                            Some("⚠ Please select at least one category first!".to_string());
-                        return EventResult::Continue;
-                    }
+            if let 0..=2 = app_state.action_cursor {
+                // Scan/Clean/Analyze require at least one category to be enabled
+                if !app_state.categories.iter().any(|c| c.enabled) {
+                    app_state.dashboard_message =
+                        Some("⚠ Please select at least one category first!".to_string());
+                    return EventResult::Continue;
                 }
-                _ => {}
             }
 
             match app_state.action_cursor {
@@ -1046,9 +1041,9 @@ fn handle_results_event(
             let start = (app_state.cursor + 1).min(rows.len());
             let mut found = None;
 
-            for i in start..rows.len() {
+            for (i, row) in rows.iter().enumerate().skip(start) {
                 if matches!(
-                    rows[i],
+                    row,
                     crate::tui::state::ResultsRow::CategoryHeader { .. }
                 ) {
                     found = Some(i);
@@ -1056,9 +1051,13 @@ fn handle_results_event(
                 }
             }
             if found.is_none() {
-                for i in 0..=app_state.cursor.min(rows.len().saturating_sub(1)) {
+                for (i, row) in rows
+                    .iter()
+                    .enumerate()
+                    .take(app_state.cursor.min(rows.len().saturating_sub(1)) + 1)
+                {
                     if matches!(
-                        rows[i],
+                        row,
                         crate::tui::state::ResultsRow::CategoryHeader { .. }
                     ) {
                         found = Some(i);
@@ -1767,7 +1766,7 @@ fn handle_disk_insights_event(
                 } else {
                     // Navigate back to parent if not at root
                     if let Some(parent) = current_path.parent() {
-                        if parent != &insights.root.path && parent.starts_with(&insights.root.path)
+                        if parent != insights.root.path.as_path() && parent.starts_with(insights.root.path.as_path())
                         {
                             *current_path = parent.to_path_buf();
                             *cursor = 0;

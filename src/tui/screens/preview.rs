@@ -15,6 +15,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
+use std::path::Path;
 
 pub fn render(f: &mut Frame, app_state: &AppState) {
     let area = f.area();
@@ -108,7 +109,7 @@ fn render_delete_preview(
     f: &mut Frame,
     area: Rect,
     item: &crate::tui::state::ResultItem,
-    base_path: &std::path::PathBuf,
+    base_path: &Path,
 ) {
     let path_display = crate::utils::to_relative_path(&item.path, base_path);
     let path_truncated = if path_display.len() > 50 {

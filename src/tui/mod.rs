@@ -37,7 +37,7 @@ pub fn run(initial_state: Option<AppState>) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Initialize app state (use provided or create new)
-    let mut app_state = initial_state.unwrap_or_else(|| AppState::new());
+    let mut app_state = initial_state.unwrap_or_else(AppState::new);
     let mut scan_pending = false;
     let mut clean_pending = false;
 
@@ -98,12 +98,10 @@ pub fn run(initial_state: Option<AppState>) -> Result<()> {
                                 .unwrap_or_else(|_| std::path::PathBuf::from("."))
                         }
                     })
+                } else if let Ok(userprofile) = std::env::var("USERPROFILE") {
+                    std::path::PathBuf::from(&userprofile)
                 } else {
-                    if let Ok(userprofile) = std::env::var("USERPROFILE") {
-                        std::path::PathBuf::from(&userprofile)
-                    } else {
-                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-                    }
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
                 };
 
                 // Update progress message

@@ -76,14 +76,12 @@ pub fn clean_all(
         return Ok(());
     }
 
-    if dry_run {
-        if mode != OutputMode::Quiet {
-            println!(
-                "{}",
-                Theme::warning_msg("DRY RUN MODE - No files will be deleted")
-            );
-            println!();
-        }
+    if dry_run && mode != OutputMode::Quiet {
+        println!(
+            "{}",
+            Theme::warning_msg("DRY RUN MODE - No files will be deleted")
+        );
+        println!();
     }
 
     if permanent && mode != OutputMode::Quiet {

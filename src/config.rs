@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub thresholds: Thresholds,
@@ -44,7 +44,7 @@ pub struct Thresholds {
     pub min_size_mb: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Paths {
     #[serde(default)]
     pub scan_roots: Vec<String>,
@@ -141,7 +141,7 @@ pub struct HistorySettings {
     pub max_age_days: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CategorySettings {
     /// Default enabled categories for TUI (empty = use hardcoded defaults)
     #[serde(default)]
@@ -164,7 +164,7 @@ pub struct CategorySettings {
     pub duplicates: DuplicatesConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CategoryConfig {
     /// Additional exclusion patterns specific to this category
     #[serde(default)]
@@ -199,20 +199,6 @@ pub struct DuplicatesConfig {
     pub buffer_size_bytes: usize,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            thresholds: Thresholds::default(),
-            paths: Paths::default(),
-            exclusions: Exclusions::default(),
-            ui: UiSettings::default(),
-            safety: SafetySettings::default(),
-            performance: PerformanceSettings::default(),
-            history: HistorySettings::default(),
-            categories: CategorySettings::default(),
-        }
-    }
-}
 
 impl Default for Thresholds {
     fn default() -> Self {
@@ -224,13 +210,6 @@ impl Default for Thresholds {
     }
 }
 
-impl Default for Paths {
-    fn default() -> Self {
-        Self {
-            scan_roots: Vec::new(),
-        }
-    }
-}
 
 impl Default for Exclusions {
     fn default() -> Self {
@@ -315,28 +294,7 @@ impl Default for HistorySettings {
     }
 }
 
-impl Default for CategorySettings {
-    fn default() -> Self {
-        Self {
-            default_enabled: Vec::new(),
-            cache: CategoryConfig::default(),
-            build: CategoryConfig::default(),
-            large: CategoryConfig::default(),
-            old: CategoryConfig::default(),
-            duplicates: DuplicatesConfig::default(),
-        }
-    }
-}
 
-impl Default for CategoryConfig {
-    fn default() -> Self {
-        Self {
-            exclude_patterns: Vec::new(),
-            threshold_override: None,
-            custom_artifacts: Vec::new(),
-        }
-    }
-}
 
 impl Default for DuplicatesConfig {
     fn default() -> Self {

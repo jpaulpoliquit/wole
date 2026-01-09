@@ -147,38 +147,36 @@ fn scan_directory(
             });
         });
 
-    for entry in walk {
-        if let Ok(e) = entry {
-            let path = e.path();
+    for e in walk.into_iter().flatten() {
+        let path = e.path();
 
-            // We only care about files
-            if !e.file_type().is_file() {
-                continue;
-            }
+        // We only care about files
+        if !e.file_type().is_file() {
+            continue;
+        }
 
-            let metadata = match e.metadata() {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
+        let metadata = match e.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
 
-            // Skip tiny files
-            if metadata.len() < MIN_FILE_SIZE {
-                continue;
-            }
+        // Skip tiny files
+        if metadata.len() < MIN_FILE_SIZE {
+            continue;
+        }
 
-            // Check age
-            if let Ok(modified) = metadata.modified() {
-                let modified_dt: chrono::DateTime<Utc> = modified.into();
-                if modified_dt < *cutoff {
-                    // Skip files in active projects (using CACHED git lookup)
-                    if let Some(project_root) = git::find_git_root_cached(&path) {
-                        if let Ok(true) = project::is_project_active(&project_root, 14) {
-                            continue;
-                        }
+        // Check age
+        if let Ok(modified) = metadata.modified() {
+            let modified_dt: chrono::DateTime<Utc> = modified.into();
+            if modified_dt < *cutoff {
+                // Skip files in active projects (using CACHED git lookup)
+                if let Some(project_root) = git::find_git_root_cached(&path) {
+                    if let Ok(true) = project::is_project_active(&project_root, 14) {
+                        continue;
                     }
-
-                    files.push((path, metadata.len()));
                 }
+
+                files.push((path, metadata.len()));
             }
         }
     }

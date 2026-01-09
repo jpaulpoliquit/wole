@@ -38,7 +38,7 @@ fn fun_comparison_short(bytes: u64) -> Option<String> {
         if count >= 1 {
             Some(format!("(~{} game installs!)", count))
         } else {
-            Some(format!("(partial game install!)"))
+            Some("(partial game install!)".to_string())
         }
     } else if bytes >= 500 * MB {
         let count = bytes / node_modules_size;

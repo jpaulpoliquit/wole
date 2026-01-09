@@ -102,7 +102,7 @@ pub fn render_logo_with_style(
                     .enumerate()
                     .map(|(i, c)| {
                         // Create a moving highlight effect
-                        let distance = ((i as i32 - shimmer_offset as i32).abs()) as usize;
+                        let distance = (i as i32 - shimmer_offset as i32).unsigned_abs();
                         if distance < 3 && *c != ' ' {
                             Span::styled(c.to_string(), Styles::emphasis())
                         } else {

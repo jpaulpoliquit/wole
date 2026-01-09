@@ -53,7 +53,7 @@ fn render_header(f: &mut Frame, area: Rect, _is_small: bool) {
 }
 
 fn render_actions(f: &mut Frame, area: Rect, app_state: &AppState) {
-    let actions = vec![
+    let actions = [
         ("Scan", "Find cleanable files (safe, dry-run)"),
         ("Clean", "Delete selected files"),
         ("Analyze", "Explore disk usage (folder sizes)"),
@@ -224,11 +224,7 @@ fn render_content(f: &mut Frame, area: Rect, app_state: &AppState, _is_small: bo
     let border_style = Styles::border();
 
     // Adaptive title and padding
-    let title = if !app_state.focus_actions {
-        "Categories"
-    } else {
-        "Categories"
-    };
+    let title = "Categories";
 
     let padding = if area.width < 30 {
         ratatui::widgets::Padding::new(0, 1, 0, 1) // Minimal padding on small screens

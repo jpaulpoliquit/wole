@@ -106,8 +106,8 @@ fn fun_comparison(bytes: u64) -> Option<String> {
             "That's like ~{} floppy disks (~{:.0} MB) worth of space!",
             count, mb
         ))
-    } else if bytes >= 1 * MB {
-        Some(format!("Every megabyte counts!"))
+    } else if bytes >= MB {
+        Some("Every megabyte counts!".to_string())
     } else {
         None
     }

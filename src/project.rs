@@ -154,10 +154,10 @@ pub fn is_project_active(path: &Path, age_days: u64) -> Result<bool> {
             // Limit to first 100 files
             let entry_path = entry.path();
             if let Some(ext) = entry_path.extension() {
-                if source_extensions.contains(&ext.to_string_lossy().as_ref()) {
-                    if was_modified_recently(&entry_path) {
-                        return Ok(true);
-                    }
+                if source_extensions.contains(&ext.to_string_lossy().as_ref())
+                    && was_modified_recently(&entry_path)
+                {
+                    return Ok(true);
                 }
             }
         }
