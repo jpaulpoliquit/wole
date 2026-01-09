@@ -798,12 +798,13 @@ pub fn clean_paths_batch(
                     success_count = unlocked.len();
                     deleted_paths.extend(unlocked);
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Batch failed - try smaller batches first (in case one bad file causes failure)
                     // Then fallback to one-by-one if that also fails
                     const BATCH_SIZE: usize = 100;
                     let mut remaining: Vec<std::path::PathBuf> = unlocked;
-                    let mut batch_success = false;
+                    #[allow(unused_assignments)]
+                    let mut _batch_success = false;
 
                     // Try deleting in smaller batches
                     if remaining.len() > BATCH_SIZE {
@@ -818,7 +819,7 @@ pub fn clean_paths_batch(
                                 Ok(()) => {
                                     success_count += batch.len();
                                     deleted_paths.extend(batch);
-                                    batch_success = true;
+                                    _batch_success = true;
                                 }
                                 Err(_) => {
                                     // This batch failed, add to remaining for one-by-one
@@ -832,8 +833,8 @@ pub fn clean_paths_batch(
                     // Fallback to one-by-one for any remaining files
                     if !remaining.is_empty() {
                         #[cfg(debug_assertions)]
-                        if !batch_success {
-                            eprintln!("[DEBUG] Batch delete failed: {}, falling back to one-by-one for {} files", e, remaining.len());
+                        if !_batch_success {
+                            eprintln!("[DEBUG] Batch delete failed: {}, falling back to one-by-one for {} files", _e, remaining.len());
                         }
                         for path in remaining {
                             // Double-check file exists before attempting deletion
@@ -846,13 +847,13 @@ pub fn clean_paths_batch(
                                     success_count += 1;
                                     deleted_paths.push(path.clone());
                                 }
-                                Err(err) => {
+                                Err(_err) => {
                                     error_count += 1;
                                     #[cfg(debug_assertions)]
                                     eprintln!(
                                         "[DEBUG] Failed to delete {}: {}",
                                         path.display(),
-                                        err
+                                        _err
                                     );
                                 }
                             }
