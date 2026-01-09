@@ -1,0 +1,106 @@
+#!/bin/bash
+set -e
+
+REPO="jpaulpoliquit/sweeper"
+
+# Detect OS and architecture
+OS="windows"
+ARCH=$(uname -m)
+
+case "$ARCH" in
+  x86_64) ARCH="x86_64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+
+# Windows only has x86_64 builds for now
+if [ "$ARCH" != "x86_64" ]; then
+  echo "Warning: Only x86_64 builds are available. Using x86_64..."
+  ARCH="x86_64"
+fi
+
+ASSET="sweeper-windows-${ARCH}.zip"
+URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"
+
+echo "Downloading sweeper for Windows-${ARCH}..."
+
+# Create temp directory
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+# Download
+echo "Downloading from $URL..."
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$URL" -o "$TEMP_DIR/sweeper.zip"
+elif command -v wget >/dev/null 2>&1; then
+  wget -q "$URL" -O "$TEMP_DIR/sweeper.zip"
+else
+  echo "Error: curl or wget is required"
+  exit 1
+fi
+
+# Extract (use unzip if available, otherwise PowerShell)
+if command -v unzip >/dev/null 2>&1; then
+  unzip -q "$TEMP_DIR/sweeper.zip" -d "$TEMP_DIR"
+else
+  # Fall back to PowerShell on Windows
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+    "Expand-Archive -Path '$TEMP_DIR/sweeper.zip' -DestinationPath '$TEMP_DIR' -Force"
+fi
+
+# Find executable
+EXE_PATH=""
+if [ -f "$TEMP_DIR/sweeper.exe" ]; then
+  EXE_PATH="$TEMP_DIR/sweeper.exe"
+else
+  # Look for any .exe in extracted folder
+  EXE_PATH=$(find "$TEMP_DIR" -name "*.exe" -type f | head -n 1)
+  if [ -z "$EXE_PATH" ]; then
+    echo "Error: Could not find sweeper.exe in downloaded archive"
+    exit 1
+  fi
+fi
+
+# Determine install location
+INSTALL_DIR=""
+
+# Try to use Windows paths
+if [ -n "$LOCALAPPDATA" ]; then
+  # Convert Windows path to Unix-style for Git Bash
+  INSTALL_DIR=$(cygpath -u "$LOCALAPPDATA")/sweeper/bin
+elif [ -n "$USERPROFILE" ]; then
+  INSTALL_DIR=$(cygpath -u "$USERPROFILE")/.local/bin
+else
+  INSTALL_DIR="$HOME/.local/bin"
+fi
+
+# Create install directory
+mkdir -p "$INSTALL_DIR"
+
+# Copy executable
+cp "$EXE_PATH" "$INSTALL_DIR/sweeper.exe"
+chmod +x "$INSTALL_DIR/sweeper.exe"
+
+echo "Installed to $INSTALL_DIR/sweeper.exe"
+
+# Add to PATH using PowerShell (works better on Windows)
+INSTALL_DIR_WIN=$(cygpath -w "$INSTALL_DIR" 2>/dev/null || echo "$INSTALL_DIR")
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+  "\$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); \
+   \$installDir = '$INSTALL_DIR_WIN'; \
+   if (\$currentPath -notlike \"*\$installDir*\") { \
+     \$newPath = \$currentPath + ';' + \$installDir; \
+     [Environment]::SetEnvironmentVariable('Path', \$newPath, 'User'); \
+     Write-Host 'Added to user PATH' \
+   } else { \
+     Write-Host 'Already in PATH' \
+   }"
+
+echo ""
+echo "✓ sweeper installed successfully!"
+echo ""
+echo "Note: Restart your terminal or run this to use sweeper immediately:"
+echo "  export PATH=\"$INSTALL_DIR:\$PATH\""
+echo ""
+echo "Run 'sweeper --help' to get started."
