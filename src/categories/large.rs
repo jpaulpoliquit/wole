@@ -82,6 +82,8 @@ fn scan_directory(
 
     // Clone config for thread-safe access (jwalk requires 'static)
     let config_clone = Arc::new(config.clone());
+    // Clone again for the second closure
+    let config_clone_for_each = Arc::clone(&config_clone);
 
     // Use Mutex for thread-safe collection
     let found_files: Mutex<Vec<(PathBuf, u64)>> = Mutex::new(Vec::new());
@@ -144,7 +146,7 @@ fn scan_directory(
         })
         .into_iter()
         .filter_map(|e| e.ok())
-        .for_each(|entry| {
+        .for_each(move |entry| {
             let path = entry.path();
 
             // Check if it's a file
@@ -173,7 +175,7 @@ fn scan_directory(
             // the user is actively working on
             if let Some(project_root) = git::find_git_root_cached(&path) {
                 // Use project_age_days from config (defaults to 14 if not set)
-                let project_age_days = config_clone.thresholds.project_age_days;
+                let project_age_days = config_clone_for_each.thresholds.project_age_days;
                 if let Ok(true) = project::is_project_active(&project_root, project_age_days) {
                     return; // Skip files from active projects
                 }
