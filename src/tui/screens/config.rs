@@ -1,19 +1,19 @@
 //! Config screen - show config path and how to edit
 
 use ratatui::{
-    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
+    Frame,
 };
 
 use crate::tui::{
-    state::AppState, 
+    state::AppState,
     theme::Styles,
     widgets::{
-        shortcuts::{render_shortcuts, get_shortcuts},
         logo::{render_logo, render_tagline, LOGO_WITH_TAGLINE_HEIGHT},
+        shortcuts::{get_shortcuts, render_shortcuts},
     },
 };
 
@@ -24,9 +24,9 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT), // Logo + 2 blank lines + tagline
-            Constraint::Length(3), // Header
-            Constraint::Min(1),    // Body
-            Constraint::Length(3), // Shortcuts
+            Constraint::Length(3),                        // Header
+            Constraint::Min(1),                           // Body
+            Constraint::Length(3),                        // Shortcuts
         ])
         .split(area);
 
@@ -41,8 +41,6 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
     let shortcuts = get_shortcuts(&app_state.screen, Some(app_state));
     render_shortcuts(f, chunks[3], &shortcuts);
 }
-
-
 
 fn render_header(f: &mut Frame, area: Rect) {
     let header = Paragraph::new(Line::from(vec![
@@ -131,15 +129,20 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
         .default_scan_path
         .as_deref()
         .unwrap_or("(auto-detect)");
-    field_lines.push(Line::from(vec![
-        Span::styled("  Default scan path:", Styles::secondary()),
-    ]));
+    field_lines.push(Line::from(vec![Span::styled(
+        "  Default scan path:",
+        Styles::secondary(),
+    )]));
     field_lines.push(Line::from(vec![
         Span::styled("    ", Styles::secondary()),
         Span::styled(
             if editing && selected == 3 {
                 let b = edit_buffer.unwrap_or("");
-                if b.is_empty() { "(auto-detect)".to_string() } else { b.to_string() }
+                if b.is_empty() {
+                    "(auto-detect)".to_string()
+                } else {
+                    b.to_string()
+                }
             } else {
                 current_scan_path.to_string()
             },
@@ -150,10 +153,7 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
     // 4 animations
     field_lines.push(Line::from(vec![
         Span::styled("  Animations:       ", Styles::secondary()),
-        Span::styled(
-            format!("{}", config.ui.animations),
-            field_style(4),
-        ),
+        Span::styled(format!("{}", config.ui.animations), field_style(4)),
         Span::styled("   (Space/Enter toggles)", Styles::secondary()),
     ]));
 
@@ -173,32 +173,40 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
     // 6 show_storage_info
     field_lines.push(Line::from(vec![
         Span::styled("  Show storage info:", Styles::secondary()),
-        Span::styled(
-            format!("{}", config.ui.show_storage_info),
-            field_style(6),
-        ),
+        Span::styled(format!("{}", config.ui.show_storage_info), field_style(6)),
         Span::styled("   (Space/Enter toggles)", Styles::secondary()),
     ]));
 
     let text = Text::from(vec![
-        Line::from(vec![
-            Span::styled("Config file:", Styles::header()),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("  {}", config_path), Styles::primary()),
-        ]),
+        Line::from(vec![Span::styled("Config file:", Styles::header())]),
+        Line::from(vec![Span::styled(
+            format!("  {}", config_path),
+            Styles::primary(),
+        )]),
         Line::from(vec![
             Span::styled("  Exists: ", Styles::secondary()),
             Span::styled(
-                if config_exists { "yes" } else { "no (will be created on open)" },
-                if config_exists { Styles::primary() } else { Styles::warning() },
+                if config_exists {
+                    "yes"
+                } else {
+                    "no (will be created on open)"
+                },
+                if config_exists {
+                    Styles::primary()
+                } else {
+                    Styles::warning()
+                },
             ),
         ]),
         Line::from(vec![
             Span::styled("  Folder exists: ", Styles::secondary()),
             Span::styled(
                 if config_dir_exists { "yes" } else { "no" },
-                if config_dir_exists { Styles::primary() } else { Styles::warning() },
+                if config_dir_exists {
+                    Styles::primary()
+                } else {
+                    Styles::warning()
+                },
             ),
         ]),
         Line::from(""),
@@ -210,9 +218,7 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
         Line::from(""),
         Line::from(""),
         // Placeholder for fields; we append below.
-        Line::from(vec![
-            Span::styled("Tips:", Styles::header()),
-        ]),
+        Line::from(vec![Span::styled("Tips:", Styles::header())]),
         Line::from(vec![
             Span::styled("  - Press ", Styles::secondary()),
             Span::styled("Enter", Styles::emphasis()),
@@ -272,4 +278,3 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
 
     f.render_widget(body, area);
 }
-

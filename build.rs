@@ -6,9 +6,12 @@ fn main() {
     // Get the target OS and environment
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    
-    eprintln!("[BUILD.RS] target_os={} target_env={}", target_os, target_env);
-    
+
+    eprintln!(
+        "[BUILD.RS] target_os={} target_env={}",
+        target_os, target_env
+    );
+
     if target_os == "windows" {
         if target_env == "msvc" {
             // MSVC linker: set stack size to 16MB (16777216 bytes)
@@ -24,6 +27,6 @@ fn main() {
     } else {
         eprintln!("[BUILD.RS] Not Windows, skipping stack config");
     }
-    
+
     println!("cargo:rerun-if-changed=build.rs");
 }

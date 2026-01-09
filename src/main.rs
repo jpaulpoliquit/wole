@@ -1,6 +1,6 @@
 use anyhow::Result;
-use sweeper::cli::Cli;
 use std::env;
+use sweeper::cli::Cli;
 
 fn main() -> Result<()> {
     // Check if no arguments provided (only program name)
@@ -10,7 +10,7 @@ fn main() -> Result<()> {
         sweeper::tui::run(None)?;
         return Ok(());
     }
-    
+
     let cli = Cli::parse();
     cli.run()
 }

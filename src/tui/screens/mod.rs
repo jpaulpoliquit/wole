@@ -1,17 +1,17 @@
 //! Screen rendering modules
 
-pub mod dashboard;
 pub mod config;
-pub mod scanning;
-pub mod results;
-pub mod preview;
 pub mod confirm;
-pub mod success;
-pub mod restore;
+pub mod dashboard;
 pub mod disk_insights;
+pub mod preview;
+pub mod restore;
+pub mod results;
+pub mod scanning;
+pub mod success;
 
-use ratatui::Frame;
 use crate::tui::state::AppState;
+use ratatui::Frame;
 
 /// Main render function that dispatches to the appropriate screen
 pub fn render(f: &mut Frame, app_state: &mut AppState) {
@@ -28,4 +28,3 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
         crate::tui::state::Screen::DiskInsights { .. } => disk_insights::render(f, app_state),
     }
 }
-

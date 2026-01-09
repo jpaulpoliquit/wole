@@ -1,13 +1,13 @@
 //! Progress bar widgets
 
+use crate::tui::theme::Styles;
+use bytesize;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::tui::theme::Styles;
-use bytesize;
 
 /// Render a progress bar
 pub fn render_progress_bar(
@@ -20,25 +20,29 @@ pub fn render_progress_bar(
     tick: u64,
 ) {
     use ratatui::layout::{Constraint, Direction, Layout};
-    
+
     // Ensure minimum width for proper rendering
     if area.width < 20 {
         // If area is too small, just render label and status
-        let text = format!("{}: {} {}", label, status, 
-            size.map(|s| bytesize::to_string(s, true)).unwrap_or_else(|| "---".to_string()));
-        let paragraph = Paragraph::new(text)
-            .style(Styles::primary());
+        let text = format!(
+            "{}: {} {}",
+            label,
+            status,
+            size.map(|s| bytesize::to_string(s, true))
+                .unwrap_or_else(|| "---".to_string())
+        );
+        let paragraph = Paragraph::new(text).style(Styles::primary());
         f.render_widget(paragraph, area);
         return;
     }
-    
+
     // Split area into label, gauge, and status
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(15),  // Label (fixed width)
-            Constraint::Min(10),     // Gauge (flexible, minimum 10)
-            Constraint::Length(20),  // Status (fixed width)
+            Constraint::Length(15), // Label (fixed width)
+            Constraint::Min(10),    // Gauge (flexible, minimum 10)
+            Constraint::Length(20), // Status (fixed width)
         ])
         .split(area);
 
@@ -48,19 +52,18 @@ pub fn render_progress_bar(
     } else {
         format!("{:13}", label)
     };
-    let label_paragraph = Paragraph::new(label_text)
-        .style(Styles::emphasis());
+    let label_paragraph = Paragraph::new(label_text).style(Styles::emphasis());
     f.render_widget(label_paragraph, chunks[0]);
 
     // Custom Animated Bar Drawing
     let gauge_area = chunks[1];
     let width = gauge_area.width as usize;
-    
+
     if width > 0 {
         let filled_width = ((width as f32 * progress).round() as usize).min(width);
-        
+
         let mut bar_spans = Vec::new();
-        
+
         // Color depends on state
         let color = if progress >= 1.0 {
             Styles::success()
@@ -76,7 +79,7 @@ pub fn render_progress_bar(
             let filled_str = filled_char.repeat(filled_width);
             bar_spans.push(Span::styled(filled_str, color));
         }
-        
+
         // Draw Animated Head (if active and not full)
         if progress < 1.0 && progress > 0.0 && filled_width < width {
             // Pulse animation for the head
@@ -89,27 +92,37 @@ pub fn render_progress_bar(
         }
 
         // Draw empty part
-        let empty_width = width.saturating_sub(filled_width + if progress < 1.0 && progress > 0.0 { 1 } else { 0 });
+        let empty_width = width.saturating_sub(
+            filled_width
+                + if progress < 1.0 && progress > 0.0 {
+                    1
+                } else {
+                    0
+                },
+        );
         if empty_width > 0 {
             let empty_char = "░";
             let empty_str = empty_char.repeat(empty_width);
-            bar_spans.push(Span::styled(empty_str, Styles::secondary().add_modifier(ratatui::style::Modifier::DIM)));
+            bar_spans.push(Span::styled(
+                empty_str,
+                Styles::secondary().add_modifier(ratatui::style::Modifier::DIM),
+            ));
         }
 
         // Overlay percentage text
-        // (Ratatui doesn't easily support layering text over other widgets without canvas, 
-        // so we'll just put it in the status or rely on the visual bar. 
+        // (Ratatui doesn't easily support layering text over other widgets without canvas,
+        // so we'll just put it in the status or rely on the visual bar.
         // Or we can construct a single string if we weren't doing colors.
         // For now, let's append the % at the end of the bar area if space allows, or overlay it?)
-        
-        // Actually, let's keep it simple: The bar is the visual indicator. 
+
+        // Actually, let's keep it simple: The bar is the visual indicator.
         // We'll put the exact % in the status area or overlay it if we manually check bounds.
         // For a clean look, let's just render the bar spans.
-        
+
         // Note: Render percentage in the "Status" area if current status is brief?
         // Or render it right on top? To render text on top of bar characters we need a custom widget impl.
         // Let's stick to placing the bar. We can add percentage to the status string passed in.
-        
+
         let bar_line = Line::from(bar_spans);
         let bar_block = Block::default().borders(Borders::NONE);
         let bar_widget = Paragraph::new(bar_line).block(bar_block);
@@ -131,9 +144,7 @@ pub fn render_progress_bar(
     };
 
     let status_text = format!("{:>8} {}", size_text, display_status);
-    let status_line = Line::from(vec![
-        Span::styled(status_text, Styles::secondary()),
-    ]);
+    let status_line = Line::from(vec![Span::styled(status_text, Styles::secondary())]);
 
     let status_paragraph = Paragraph::new(status_line);
     f.render_widget(status_paragraph, chunks[2]);
@@ -151,16 +162,17 @@ pub fn render_category_progress(
     if categories.is_empty() {
         // Show empty state with helpful message
         let empty_lines = vec![
-            ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled("No categories selected", Styles::secondary()),
-            ]),
+            ratatui::text::Line::from(vec![ratatui::text::Span::styled(
+                "No categories selected",
+                Styles::secondary(),
+            )]),
             ratatui::text::Line::from(""),
-            ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled("   Go back to select categories first.", Styles::secondary()),
-            ]),
+            ratatui::text::Line::from(vec![ratatui::text::Span::styled(
+                "   Go back to select categories first.",
+                Styles::secondary(),
+            )]),
         ];
-        let empty_msg = Paragraph::new(empty_lines)
-        .block(
+        let empty_msg = Paragraph::new(empty_lines).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Styles::border())
@@ -173,12 +185,14 @@ pub fn render_category_progress(
     // Ensure we have enough height - each progress bar needs at least 1 line
     let num_categories = categories.len();
     let available_height = area.height;
-    
+
     if available_height < num_categories as u16 {
         // Not enough space - show a scrollable message
-        let msg = Paragraph::new(format!("Showing {} categories (need {} lines)", 
-            available_height, num_categories))
-            .style(Styles::secondary());
+        let msg = Paragraph::new(format!(
+            "Showing {} categories (need {} lines)",
+            available_height, num_categories
+        ))
+        .style(Styles::secondary());
         f.render_widget(msg, area);
         return;
     }
@@ -198,7 +212,7 @@ pub fn render_category_progress(
             if chunk.width < 20 {
                 continue;
             }
-            
+
             let status = if cat.completed {
                 "Done".to_string()
             } else if cat.progress_pct > 0.0 {
@@ -215,7 +229,15 @@ pub fn render_category_progress(
                 "Wait".to_string()
             };
 
-            render_progress_bar(f, *chunk, &cat.name, cat.progress_pct, cat.size, &status, tick);
+            render_progress_bar(
+                f,
+                *chunk,
+                &cat.name,
+                cat.progress_pct,
+                cat.size,
+                &status,
+                tick,
+            );
         }
     }
 }

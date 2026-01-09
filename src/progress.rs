@@ -8,7 +8,7 @@ pub fn create_spinner(msg: &str) -> ProgressBar {
         ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
             .template("{spinner:.cyan} {msg}")
-            .unwrap()
+            .unwrap(),
     );
     pb.set_message(msg.to_string());
     pb.enable_steady_tick(Duration::from_millis(80));
@@ -22,22 +22,24 @@ pub fn create_progress_bar(total: u64, msg: &str) -> ProgressBar {
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
             .unwrap()
-            .progress_chars("█▓░")
+            .progress_chars("█▓░"),
     );
     pb.set_message(msg.to_string());
     pb
 }
 
 /// Create a progress bar with ETA display
-/// 
+///
 /// Shows: spinner, progress bar, position/total, items per second, ETA, and message
 pub fn create_progress_bar_with_eta(total: u64, msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(total);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({per_sec}) ETA: {eta} {msg}")
+            .template(
+                "{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({per_sec}) ETA: {eta} {msg}",
+            )
             .unwrap()
-            .progress_chars("█▓░")
+            .progress_chars("█▓░"),
     );
     pb.set_message(msg.to_string());
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -45,7 +47,7 @@ pub fn create_progress_bar_with_eta(total: u64, msg: &str) -> ProgressBar {
 }
 
 /// Create a bytes-based progress bar with ETA (for cleaning operations)
-/// 
+///
 /// Shows: spinner, progress bar, bytes/total_bytes, throughput, ETA, and message
 pub fn create_bytes_progress_bar(total_bytes: u64, msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(total_bytes);
@@ -61,7 +63,7 @@ pub fn create_bytes_progress_bar(total_bytes: u64, msg: &str) -> ProgressBar {
 }
 
 /// Create a scanning progress bar (for multi-category scans)
-/// 
+///
 /// Shows: spinner, progress bar, position/total categories, elapsed time, message
 pub fn create_scan_progress_bar(total: u64, msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(total);
@@ -69,7 +71,7 @@ pub fn create_scan_progress_bar(total: u64, msg: &str) -> ProgressBar {
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({elapsed_precise}) {msg}")
             .unwrap()
-            .progress_chars("█▓░")
+            .progress_chars("█▓░"),
     );
     pb.set_message(msg.to_string());
     pb.enable_steady_tick(Duration::from_millis(100));
@@ -89,7 +91,7 @@ pub fn finish_and_clear(pb: &ProgressBar) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_create_spinner() {
         let pb = create_spinner("Test spinner");
@@ -97,7 +99,7 @@ mod tests {
         pb.finish();
         assert!(pb.is_finished());
     }
-    
+
     #[test]
     fn test_create_progress_bar() {
         let pb = create_progress_bar(100, "Test progress");
@@ -107,7 +109,7 @@ mod tests {
         assert_eq!(pb.position(), 50);
         pb.finish();
     }
-    
+
     #[test]
     fn test_create_progress_bar_with_eta() {
         let pb = create_progress_bar_with_eta(100, "Test ETA progress");
@@ -116,7 +118,7 @@ mod tests {
         assert_eq!(pb.position(), 25);
         pb.finish();
     }
-    
+
     #[test]
     fn test_create_bytes_progress_bar() {
         let pb = create_bytes_progress_bar(1024 * 1024, "Test bytes progress");
@@ -125,7 +127,7 @@ mod tests {
         assert_eq!(pb.position(), 512 * 1024);
         pb.finish();
     }
-    
+
     #[test]
     fn test_create_scan_progress_bar() {
         let pb = create_scan_progress_bar(10, "Test scan progress");

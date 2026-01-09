@@ -1,46 +1,136 @@
 use crate::config::Config;
 use crate::output::CategoryResult;
-use crate::utils;
 use crate::scan_events::ScanProgressEvent;
+use crate::utils;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
-use std::collections::HashSet;
 
 /// Application cache locations to scan
 /// Each tuple is (name, path_from_localappdata_or_appdata)
 const APP_CACHE_LOCATIONS: &[(&str, AppCacheLocation)] = &[
-    ("Discord", AppCacheLocation::LocalAppDataNested(&["discord", "Cache"])),
-    ("VS Code", AppCacheLocation::LocalAppDataNested(&["Code", "Cache"])),
-    ("VS Code (User)", AppCacheLocation::LocalAppDataNested(&["Code", "User", "CachedData"])),
-    ("Slack", AppCacheLocation::LocalAppDataNested(&["slack", "Cache"])),
-    ("Spotify", AppCacheLocation::LocalAppDataNested(&["Spotify", "Storage"])),
-    ("Steam", AppCacheLocation::LocalAppDataNested(&["Steam", "htmlcache"])),
-    ("Telegram", AppCacheLocation::LocalAppDataNested(&["Telegram Desktop", "tdata"])),
-    ("Zoom", AppCacheLocation::LocalAppDataNested(&["Zoom", "Cache"])),
-    ("Teams", AppCacheLocation::LocalAppDataNested(&["Microsoft", "Teams", "Cache"])),
-    ("Notion", AppCacheLocation::LocalAppDataNested(&["Notion", "Cache"])),
-    ("Figma", AppCacheLocation::LocalAppDataNested(&["Figma", "Cache"])),
-    ("Adobe", AppCacheLocation::LocalAppDataNested(&["Adobe", "Common"])),
-    ("Adobe Acrobat", AppCacheLocation::LocalAppDataNested(&["Adobe", "Acrobat", "Cache"])),
-    ("Dropbox", AppCacheLocation::LocalAppDataNested(&["Dropbox", "Cache"])),
-    ("OneDrive", AppCacheLocation::LocalAppDataNested(&["Microsoft", "OneDrive", "Cache"])),
-    ("GitHub Desktop", AppCacheLocation::LocalAppDataNested(&["GitHub Desktop", "Cache"])),
-    ("Postman", AppCacheLocation::LocalAppDataNested(&["Postman", "Cache"])),
-    ("Docker", AppCacheLocation::LocalAppDataNested(&["Docker", "Cache"])),
-    ("DBeaver", AppCacheLocation::LocalAppDataNested(&["DBeaver", "Cache"])),
-    ("JetBrains", AppCacheLocation::LocalAppDataNested(&["JetBrains", "Cache"])),
-    ("IntelliJ IDEA", AppCacheLocation::LocalAppDataNested(&["JetBrains", "IntelliJIdea", "cache"])),
-    ("PyCharm", AppCacheLocation::LocalAppDataNested(&["JetBrains", "PyCharm", "cache"])),
-    ("WebStorm", AppCacheLocation::LocalAppDataNested(&["JetBrains", "WebStorm", "cache"])),
-    ("Android Studio", AppCacheLocation::LocalAppDataNested(&["Google", "AndroidStudio", "cache"])),
-    ("Unity", AppCacheLocation::LocalAppDataNested(&["Unity", "cache"])),
-    ("Blender", AppCacheLocation::LocalAppDataNested(&["Blender Foundation", "Blender", "cache"])),
-    ("OBS Studio", AppCacheLocation::LocalAppDataNested(&["obs-studio", "Cache"])),
-    ("VLC", AppCacheLocation::LocalAppDataNested(&["vlc", "cache"])),
-    ("WinRAR", AppCacheLocation::LocalAppDataNested(&["WinRAR", "Cache"])),
-    ("7-Zip", AppCacheLocation::LocalAppDataNested(&["7-Zip", "Cache"])),
+    (
+        "Discord",
+        AppCacheLocation::LocalAppDataNested(&["discord", "Cache"]),
+    ),
+    (
+        "VS Code",
+        AppCacheLocation::LocalAppDataNested(&["Code", "Cache"]),
+    ),
+    (
+        "VS Code (User)",
+        AppCacheLocation::LocalAppDataNested(&["Code", "User", "CachedData"]),
+    ),
+    (
+        "Slack",
+        AppCacheLocation::LocalAppDataNested(&["slack", "Cache"]),
+    ),
+    (
+        "Spotify",
+        AppCacheLocation::LocalAppDataNested(&["Spotify", "Storage"]),
+    ),
+    (
+        "Steam",
+        AppCacheLocation::LocalAppDataNested(&["Steam", "htmlcache"]),
+    ),
+    (
+        "Telegram",
+        AppCacheLocation::LocalAppDataNested(&["Telegram Desktop", "tdata"]),
+    ),
+    (
+        "Zoom",
+        AppCacheLocation::LocalAppDataNested(&["Zoom", "Cache"]),
+    ),
+    (
+        "Teams",
+        AppCacheLocation::LocalAppDataNested(&["Microsoft", "Teams", "Cache"]),
+    ),
+    (
+        "Notion",
+        AppCacheLocation::LocalAppDataNested(&["Notion", "Cache"]),
+    ),
+    (
+        "Figma",
+        AppCacheLocation::LocalAppDataNested(&["Figma", "Cache"]),
+    ),
+    (
+        "Adobe",
+        AppCacheLocation::LocalAppDataNested(&["Adobe", "Common"]),
+    ),
+    (
+        "Adobe Acrobat",
+        AppCacheLocation::LocalAppDataNested(&["Adobe", "Acrobat", "Cache"]),
+    ),
+    (
+        "Dropbox",
+        AppCacheLocation::LocalAppDataNested(&["Dropbox", "Cache"]),
+    ),
+    (
+        "OneDrive",
+        AppCacheLocation::LocalAppDataNested(&["Microsoft", "OneDrive", "Cache"]),
+    ),
+    (
+        "GitHub Desktop",
+        AppCacheLocation::LocalAppDataNested(&["GitHub Desktop", "Cache"]),
+    ),
+    (
+        "Postman",
+        AppCacheLocation::LocalAppDataNested(&["Postman", "Cache"]),
+    ),
+    (
+        "Docker",
+        AppCacheLocation::LocalAppDataNested(&["Docker", "Cache"]),
+    ),
+    (
+        "DBeaver",
+        AppCacheLocation::LocalAppDataNested(&["DBeaver", "Cache"]),
+    ),
+    (
+        "JetBrains",
+        AppCacheLocation::LocalAppDataNested(&["JetBrains", "Cache"]),
+    ),
+    (
+        "IntelliJ IDEA",
+        AppCacheLocation::LocalAppDataNested(&["JetBrains", "IntelliJIdea", "cache"]),
+    ),
+    (
+        "PyCharm",
+        AppCacheLocation::LocalAppDataNested(&["JetBrains", "PyCharm", "cache"]),
+    ),
+    (
+        "WebStorm",
+        AppCacheLocation::LocalAppDataNested(&["JetBrains", "WebStorm", "cache"]),
+    ),
+    (
+        "Android Studio",
+        AppCacheLocation::LocalAppDataNested(&["Google", "AndroidStudio", "cache"]),
+    ),
+    (
+        "Unity",
+        AppCacheLocation::LocalAppDataNested(&["Unity", "cache"]),
+    ),
+    (
+        "Blender",
+        AppCacheLocation::LocalAppDataNested(&["Blender Foundation", "Blender", "cache"]),
+    ),
+    (
+        "OBS Studio",
+        AppCacheLocation::LocalAppDataNested(&["obs-studio", "Cache"]),
+    ),
+    (
+        "VLC",
+        AppCacheLocation::LocalAppDataNested(&["vlc", "cache"]),
+    ),
+    (
+        "WinRAR",
+        AppCacheLocation::LocalAppDataNested(&["WinRAR", "Cache"]),
+    ),
+    (
+        "7-Zip",
+        AppCacheLocation::LocalAppDataNested(&["7-Zip", "Cache"]),
+    ),
 ];
 
 enum AppCacheLocation {
@@ -51,30 +141,30 @@ enum AppCacheLocation {
 const CACHE_DIR_NAMES: &[&str] = &["Cache", "cache", "Caches", ".cache", "Cache_Data"];
 
 /// Scan for app-specific cache directories
-/// 
+///
 /// Scans %LOCALAPPDATA% and %APPDATA% for app directories containing cache folders.
 /// Looks for common cache directory names like "Cache", "cache", "Caches", etc.
 fn scan_app_caches(base_path: &Path, known_paths: &mut HashSet<PathBuf>) -> Vec<PathBuf> {
     let mut app_cache_paths = Vec::new();
-    
+
     if !base_path.exists() {
         return app_cache_paths;
     }
-    
+
     // Read the base directory (e.g., LOCALAPPDATA or APPDATA)
     let entries = match utils::safe_read_dir(base_path) {
         Ok(entries) => entries,
         Err(_) => return app_cache_paths,
     };
-    
+
     for entry in entries.filter_map(|e| e.ok()) {
         let app_dir = entry.path();
-        
+
         // Skip if not a directory
         if !app_dir.is_dir() {
             continue;
         }
-        
+
         // Check for cache directories directly in the app directory
         for cache_name in CACHE_DIR_NAMES {
             let cache_path = app_dir.join(cache_name);
@@ -84,7 +174,7 @@ fn scan_app_caches(base_path: &Path, known_paths: &mut HashSet<PathBuf>) -> Vec<
                 app_cache_paths.push(cache_path);
             }
         }
-        
+
         // Also check nested app directories (e.g., CompanyName\AppName\Cache)
         if let Ok(nested_entries) = utils::safe_read_dir(&app_dir) {
             for nested_entry in nested_entries.filter_map(|e| e.ok()) {
@@ -92,11 +182,14 @@ fn scan_app_caches(base_path: &Path, known_paths: &mut HashSet<PathBuf>) -> Vec<
                 if !nested_dir.is_dir() {
                     continue;
                 }
-                
+
                 // Check for cache directories in nested app directories
                 for cache_name in CACHE_DIR_NAMES {
                     let cache_path = nested_dir.join(cache_name);
-                    if cache_path.exists() && cache_path.is_dir() && !known_paths.contains(&cache_path) {
+                    if cache_path.exists()
+                        && cache_path.is_dir()
+                        && !known_paths.contains(&cache_path)
+                    {
                         // Defer size calculation to the caller for parallelism
                         known_paths.insert(cache_path.clone());
                         app_cache_paths.push(cache_path);
@@ -105,7 +198,7 @@ fn scan_app_caches(base_path: &Path, known_paths: &mut HashSet<PathBuf>) -> Vec<
             }
         }
     }
-    
+
     app_cache_paths
 }
 
@@ -115,7 +208,7 @@ fn scan_app_caches(base_path: &Path, known_paths: &mut HashSet<PathBuf>) -> Vec<
 ///
 /// Checks well-known Windows cache locations for various applications.
 /// Also scans generically for app cache directories.
-/// 
+///
 /// Optimized to calculate directory sizes in parallel.
 pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
@@ -158,7 +251,7 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
         let app_caches = scan_app_caches(appdata_path, &mut known_paths);
         candidates.extend(app_caches);
     }
-    
+
     // 2. Calculate sizes sequentially per folder, but folder size check is parallel
     // This is much Kinder to the disk than starting N parallel walks
     let mut paths_with_sizes: Vec<(PathBuf, u64)> = candidates
@@ -251,7 +344,7 @@ pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Resul
             total_units: Some(total),
             current_path: Some(local_appdata_path.clone()),
         });
-        
+
         let app_caches = scan_app_caches(local_appdata_path, &mut known_paths);
         for cache_path in app_caches {
             let size = utils::calculate_dir_size(&cache_path);
@@ -270,7 +363,7 @@ pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Resul
             total_units: Some(total),
             current_path: Some(appdata_path.clone()),
         });
-        
+
         let app_caches = scan_app_caches(appdata_path, &mut known_paths);
         for cache_path in app_caches {
             let size = utils::calculate_dir_size(&cache_path);
@@ -301,7 +394,11 @@ pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Resul
 
 /// Clean (delete) an application cache directory by moving it to the Recycle Bin
 pub fn clean(path: &Path) -> Result<()> {
-    trash::delete(path)
-        .with_context(|| format!("Failed to delete application cache directory: {}", path.display()))?;
+    trash::delete(path).with_context(|| {
+        format!(
+            "Failed to delete application cache directory: {}",
+            path.display()
+        )
+    })?;
     Ok(())
 }

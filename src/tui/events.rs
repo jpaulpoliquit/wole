@@ -1,8 +1,8 @@
 //! Event handling for TUI
 
 use crate::tui::state::AppState;
-use crossterm::event::{KeyCode, KeyModifiers, MouseEvent, MouseEventKind, MouseButton};
 use crate::tui::widgets::logo::LOGO_WITH_TAGLINE_HEIGHT;
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::process::Command;
 
 /// Result of handling an event
@@ -13,18 +13,36 @@ pub enum EventResult {
 }
 
 /// Handle a keyboard event
-pub fn handle_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyModifiers) -> EventResult {
+pub fn handle_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    modifiers: KeyModifiers,
+) -> EventResult {
     match app_state.screen {
         crate::tui::state::Screen::Dashboard => handle_dashboard_event(app_state, key, modifiers),
         crate::tui::state::Screen::Config => handle_config_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Scanning { .. } => handle_scanning_event(app_state, key, modifiers),
+        crate::tui::state::Screen::Scanning { .. } => {
+            handle_scanning_event(app_state, key, modifiers)
+        }
         crate::tui::state::Screen::Results => handle_results_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Preview { .. } => handle_preview_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Confirm { .. } => handle_confirm_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Cleaning { .. } => handle_cleaning_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Success { .. } => handle_success_event(app_state, key, modifiers),
-        crate::tui::state::Screen::Restore { .. } => handle_restore_event(app_state, key, modifiers),
-        crate::tui::state::Screen::DiskInsights { .. } => handle_disk_insights_event(app_state, key, modifiers),
+        crate::tui::state::Screen::Preview { .. } => {
+            handle_preview_event(app_state, key, modifiers)
+        }
+        crate::tui::state::Screen::Confirm { .. } => {
+            handle_confirm_event(app_state, key, modifiers)
+        }
+        crate::tui::state::Screen::Cleaning { .. } => {
+            handle_cleaning_event(app_state, key, modifiers)
+        }
+        crate::tui::state::Screen::Success { .. } => {
+            handle_success_event(app_state, key, modifiers)
+        }
+        crate::tui::state::Screen::Restore { .. } => {
+            handle_restore_event(app_state, key, modifiers)
+        }
+        crate::tui::state::Screen::DiskInsights { .. } => {
+            handle_disk_insights_event(app_state, key, modifiers)
+        }
     }
 }
 
@@ -33,26 +51,54 @@ pub fn handle_mouse_event(app_state: &mut AppState, mouse: MouseEvent) -> EventR
     match mouse.kind {
         // Standard scrolling: Wheel Down -> View Down (Index Increase)
         MouseEventKind::ScrollDown => match app_state.screen {
-            crate::tui::state::Screen::Dashboard => handle_dashboard_event(app_state, KeyCode::Down, KeyModifiers::empty()),
-            crate::tui::state::Screen::Config => handle_config_event(app_state, KeyCode::Down, KeyModifiers::empty()),
-            crate::tui::state::Screen::Results => handle_results_event(app_state, KeyCode::Down, KeyModifiers::empty()),
-            crate::tui::state::Screen::Confirm { .. } => handle_confirm_event(app_state, KeyCode::Down, KeyModifiers::empty()),
-            crate::tui::state::Screen::DiskInsights { .. } => handle_disk_insights_event(app_state, KeyCode::Down, KeyModifiers::empty()),
+            crate::tui::state::Screen::Dashboard => {
+                handle_dashboard_event(app_state, KeyCode::Down, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Config => {
+                handle_config_event(app_state, KeyCode::Down, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Results => {
+                handle_results_event(app_state, KeyCode::Down, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Confirm { .. } => {
+                handle_confirm_event(app_state, KeyCode::Down, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::DiskInsights { .. } => {
+                handle_disk_insights_event(app_state, KeyCode::Down, KeyModifiers::empty())
+            }
             _ => EventResult::Continue,
         },
         MouseEventKind::ScrollUp => match app_state.screen {
-            crate::tui::state::Screen::Dashboard => handle_dashboard_event(app_state, KeyCode::Up, KeyModifiers::empty()),
-            crate::tui::state::Screen::Config => handle_config_event(app_state, KeyCode::Up, KeyModifiers::empty()),
-            crate::tui::state::Screen::Results => handle_results_event(app_state, KeyCode::Up, KeyModifiers::empty()),
-            crate::tui::state::Screen::Confirm { .. } => handle_confirm_event(app_state, KeyCode::Up, KeyModifiers::empty()),
-            crate::tui::state::Screen::DiskInsights { .. } => handle_disk_insights_event(app_state, KeyCode::Up, KeyModifiers::empty()),
+            crate::tui::state::Screen::Dashboard => {
+                handle_dashboard_event(app_state, KeyCode::Up, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Config => {
+                handle_config_event(app_state, KeyCode::Up, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Results => {
+                handle_results_event(app_state, KeyCode::Up, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::Confirm { .. } => {
+                handle_confirm_event(app_state, KeyCode::Up, KeyModifiers::empty())
+            }
+            crate::tui::state::Screen::DiskInsights { .. } => {
+                handle_disk_insights_event(app_state, KeyCode::Up, KeyModifiers::empty())
+            }
             _ => EventResult::Continue,
         },
         MouseEventKind::Down(MouseButton::Left) => match app_state.screen {
-            crate::tui::state::Screen::Dashboard => handle_dashboard_click(app_state, mouse.row, mouse.column),
-            crate::tui::state::Screen::Results => handle_results_click(app_state, mouse.row, mouse.column),
-            crate::tui::state::Screen::Confirm { .. } => handle_confirm_click(app_state, mouse.row, mouse.column),
-            crate::tui::state::Screen::Config => handle_config_click(app_state, mouse.row, mouse.column),
+            crate::tui::state::Screen::Dashboard => {
+                handle_dashboard_click(app_state, mouse.row, mouse.column)
+            }
+            crate::tui::state::Screen::Results => {
+                handle_results_click(app_state, mouse.row, mouse.column)
+            }
+            crate::tui::state::Screen::Confirm { .. } => {
+                handle_confirm_click(app_state, mouse.row, mouse.column)
+            }
+            crate::tui::state::Screen::Config => {
+                handle_config_click(app_state, mouse.row, mouse.column)
+            }
             _ => EventResult::Continue,
         },
         _ => EventResult::Continue,
@@ -67,20 +113,20 @@ fn handle_dashboard_click(app_state: &mut AppState, row: u16, _col: u16) -> Even
     // Actions List: 4 items (2 lines each?) -> No, ListItem is 1 cell height unless wrapped.
     // Dashboard actions are 2 lines each (Action + Desc). 4 * 2 = 8 lines?
     // Let's check dashboard.rs code.
-    // ListItem::new(line) - line contains \n so it is 2 lines? 
+    // ListItem::new(line) - line contains \n so it is 2 lines?
     // Wait, ratatui List items height is 1 by default unless wrapped?
     // In dashboard.rs: Span::raw("\n   ") is used. This forces multiline.
-    // So each action is 2 lines. 4 actions = 8 lines. Border adds 2 lines. Padding 2 lines. 
+    // So each action is 2 lines. 4 actions = 8 lines. Border adds 2 lines. Padding 2 lines.
     // Total Actions Height ~ 12.
-    
+
     let header_height = LOGO_WITH_TAGLINE_HEIGHT; // logo + tagline + spacing
     let _start_actions = header_height + 1; // +1 for "What would you like to do?"
-    
+
     // This is approximate since we don't have the exact layout calc here.
     // Clicking is often brittle in TUI without re-running layout logic.
     // Simplified: If user clicks generally in the bottom area, we focus categories.
     // If top area, focus actions.
-    
+
     if row < header_height + 14 {
         app_state.focus_actions = true;
         // Try to map row to action
@@ -99,11 +145,11 @@ fn handle_results_click(app_state: &mut AppState, row: u16, _col: u16) -> EventR
     let header_height = LOGO_WITH_TAGLINE_HEIGHT;
     let summary_height = 5;
     let list_start_y = header_height + summary_height + 1; // +1 for border
-    
+
     if row >= list_start_y && row < list_start_y + app_state.visible_height as u16 {
         let visual_index = (row - list_start_y) as usize;
         let data_index = app_state.scroll_offset + visual_index;
-        
+
         // Bounds check
         if data_index < app_state.results_rows().len() {
             // Peek at the row to see if it's a spacer BEFORE updating cursor
@@ -113,29 +159,29 @@ fn handle_results_click(app_state: &mut AppState, row: u16, _col: u16) -> EventR
                     return EventResult::Continue;
                 }
             }
-            
+
             app_state.cursor = data_index;
             // If they clicked the checkbox column (approx first 6 chars), toggle
             if _col < 8 {
-                 handle_results_event(app_state, KeyCode::Char(' '), KeyModifiers::empty());
+                handle_results_event(app_state, KeyCode::Char(' '), KeyModifiers::empty());
             } else if _col > 8 {
                 // Determine what row is clicked
                 // If it's a folder/category header, toggle expansion
                 // If it's an item, maybe open it? Or just select.
                 // Current behavior: Click selects (moves cursor).
                 // Double click? Not easily supported.
-                
+
                 // Check if it is a header row, if so toggle expansion
                 let rows = app_state.results_rows();
                 if let Some(r) = rows.get(data_index) {
-                     match r {
-                        crate::tui::state::ResultsRow::CategoryHeader { .. } |
-                        crate::tui::state::ResultsRow::FolderHeader { .. } => {
-                             // Toggle expansion on click
-                             handle_results_event(app_state, KeyCode::Enter, KeyModifiers::empty());
+                    match r {
+                        crate::tui::state::ResultsRow::CategoryHeader { .. }
+                        | crate::tui::state::ResultsRow::FolderHeader { .. } => {
+                            // Toggle expansion on click
+                            handle_results_event(app_state, KeyCode::Enter, KeyModifiers::empty());
                         }
                         _ => {}
-                     }
+                    }
                 }
             }
         }
@@ -157,23 +203,23 @@ fn handle_confirm_click(app_state: &mut AppState, row: u16, _col: u16) -> EventR
         if data_index < rows.len() {
             // Check for spacer
             if let Some(r) = rows.get(data_index) {
-                 if matches!(r, crate::tui::state::ConfirmRow::Spacer) {
-                     return EventResult::Continue;
-                 }
+                if matches!(r, crate::tui::state::ConfirmRow::Spacer) {
+                    return EventResult::Continue;
+                }
             }
 
             app_state.cursor = data_index;
             if _col < 8 {
                 handle_confirm_event(app_state, KeyCode::Char(' '), KeyModifiers::empty());
             } else {
-                 if let Some(r) = rows.get(data_index) {
-                     match r {
-                        crate::tui::state::ConfirmRow::CategoryHeader { .. } |
-                        crate::tui::state::ConfirmRow::FolderHeader { .. } => {
-                             handle_confirm_event(app_state, KeyCode::Enter, KeyModifiers::empty());
+                if let Some(r) = rows.get(data_index) {
+                    match r {
+                        crate::tui::state::ConfirmRow::CategoryHeader { .. }
+                        | crate::tui::state::ConfirmRow::FolderHeader { .. } => {
+                            handle_confirm_event(app_state, KeyCode::Enter, KeyModifiers::empty());
                         }
                         _ => {}
-                     }
+                    }
                 }
             }
         }
@@ -191,7 +237,11 @@ fn handle_config_click(_app_state: &mut AppState, _row: u16, _col: u16) -> Event
     EventResult::Continue
 }
 
-fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_dashboard_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     // Clear any temporary message on key press
     app_state.dashboard_message = None;
 
@@ -200,7 +250,7 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
             // Save category selections before quitting
             app_state.sync_categories_to_config();
             EventResult::Quit
-        },
+        }
         KeyCode::Tab => {
             // Switch focus between panels
             app_state.focus_actions = !app_state.focus_actions;
@@ -271,7 +321,8 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
                 0..=2 => {
                     // Scan/Clean/Analyze require at least one category to be enabled
                     if !app_state.categories.iter().any(|c| c.enabled) {
-                        app_state.dashboard_message = Some("⚠ Please select at least one category first!".to_string());
+                        app_state.dashboard_message =
+                            Some("⚠ Please select at least one category first!".to_string());
                         return EventResult::Continue;
                     }
                 }
@@ -294,7 +345,7 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
                             });
                         }
                     }
-                    
+
                     // Start scanning
                     app_state.screen = crate::tui::state::Screen::Scanning {
                         progress: crate::tui::state::ScanProgress {
@@ -340,7 +391,7 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
                     } else {
                         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
                     };
-                    
+
                     // Set pending action to trigger disk insights scan
                     app_state.pending_action = crate::tui::state::PendingAction::Analyze;
                     // Show scanning screen - the scan will be performed in the event loop
@@ -362,9 +413,7 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
                 }
                 3 => {
                     // Restore action
-                    app_state.screen = crate::tui::state::Screen::Restore {
-                        result: None,
-                    };
+                    app_state.screen = crate::tui::state::Screen::Restore { result: None };
                 }
                 4 => {
                     // Config action - show config screen
@@ -382,7 +431,11 @@ fn handle_dashboard_event(app_state: &mut AppState, key: KeyCode, _modifiers: Ke
     }
 }
 
-fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_config_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     use crate::tui::state::ConfigEditorMode;
 
     // Config screen fields:
@@ -463,7 +516,9 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.apply_config_to_state();
                     match app_state.config.save() {
                         Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
-                        Err(e) => app_state.config_editor.message = Some(format!("Save failed: {e}")),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
                     }
                 }
 
@@ -519,7 +574,9 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.config.ui.animations = !app_state.config.ui.animations;
                     match app_state.config.save() {
                         Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
-                        Err(e) => app_state.config_editor.message = Some(format!("Save failed: {e}")),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
                     }
                     app_state.apply_config_to_state();
                 }
@@ -527,7 +584,9 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.config.ui.show_storage_info = !app_state.config.ui.show_storage_info;
                     match app_state.config.save() {
                         Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
-                        Err(e) => app_state.config_editor.message = Some(format!("Save failed: {e}")),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
                     }
                     app_state.apply_config_to_state();
                 }
@@ -542,7 +601,9 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.config.ui.animations = !app_state.config.ui.animations;
                     match app_state.config.save() {
                         Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
-                        Err(e) => app_state.config_editor.message = Some(format!("Save failed: {e}")),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
                     }
                     app_state.apply_config_to_state();
                 }
@@ -551,7 +612,9 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.config.ui.show_storage_info = !app_state.config.ui.show_storage_info;
                     match app_state.config.save() {
                         Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
-                        Err(e) => app_state.config_editor.message = Some(format!("Save failed: {e}")),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
                     }
                     app_state.apply_config_to_state();
                 }
@@ -559,19 +622,22 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
                         buffer: app_state.config.thresholds.project_age_days.to_string(),
                     };
-                    app_state.config_editor.message = Some("Edit value, then Enter to save (Esc cancels).".to_string());
+                    app_state.config_editor.message =
+                        Some("Edit value, then Enter to save (Esc cancels).".to_string());
                 }
                 1 => {
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
                         buffer: app_state.config.thresholds.min_age_days.to_string(),
                     };
-                    app_state.config_editor.message = Some("Edit value, then Enter to save (Esc cancels).".to_string());
+                    app_state.config_editor.message =
+                        Some("Edit value, then Enter to save (Esc cancels).".to_string());
                 }
                 2 => {
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
                         buffer: app_state.config.thresholds.min_size_mb.to_string(),
                     };
-                    app_state.config_editor.message = Some("Edit value, then Enter to save (Esc cancels).".to_string());
+                    app_state.config_editor.message =
+                        Some("Edit value, then Enter to save (Esc cancels).".to_string());
                 }
                 3 => {
                     let current = app_state
@@ -581,13 +647,16 @@ fn handle_config_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyMo
                         .clone()
                         .unwrap_or_default();
                     app_state.config_editor.mode = ConfigEditorMode::Editing { buffer: current };
-                    app_state.config_editor.message = Some("Edit path (blank = auto-detect). Enter saves; Esc cancels.".to_string());
+                    app_state.config_editor.message = Some(
+                        "Edit path (blank = auto-detect). Enter saves; Esc cancels.".to_string(),
+                    );
                 }
                 5 => {
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
                         buffer: app_state.config.ui.refresh_rate_ms.to_string(),
                     };
-                    app_state.config_editor.message = Some("Edit value, then Enter to save (Esc cancels).".to_string());
+                    app_state.config_editor.message =
+                        Some("Edit value, then Enter to save (Esc cancels).".to_string());
                 }
                 _ => {}
             }
@@ -647,13 +716,11 @@ fn open_file(path: &std::path::Path) {
     if cfg!(target_os = "windows") {
         if path.is_dir() {
             // For directories, just open them
-            let _ = Command::new("explorer")
-                .arg(&path_str)
-                .spawn();
+            let _ = Command::new("explorer").arg(&path_str).spawn();
         } else {
             // For files, open the parent folder and select the file
             // explorer /select,"<file_path>" opens Explorer and selects the file
-            // We pass "/select," and the path as separate arguments. 
+            // We pass "/select," and the path as separate arguments.
             // process::Command handles quoting of the path if it has spaces.
             let _ = Command::new("explorer")
                 .arg("/select,")
@@ -666,9 +733,7 @@ fn open_file(path: &std::path::Path) {
             let _ = Command::new("open").arg(&path_str).spawn();
         } else {
             // For files, reveal in Finder (opens parent folder and selects file)
-            let _ = Command::new("open")
-                .args(["-R", &path_str])
-                .spawn();
+            let _ = Command::new("open").args(["-R", &path_str]).spawn();
         }
     } else {
         // Linux: Open parent directory (file selection not universally supported)
@@ -686,7 +751,11 @@ fn open_file(path: &std::path::Path) {
     }
 }
 
-fn handle_scanning_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_scanning_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     match key {
         KeyCode::Esc => {
             // Cancel scan - return to dashboard
@@ -698,7 +767,11 @@ fn handle_scanning_event(app_state: &mut AppState, key: KeyCode, _modifiers: Key
     }
 }
 
-fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyModifiers) -> EventResult {
+fn handle_results_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    modifiers: KeyModifiers,
+) -> EventResult {
     // If in search mode, handle typing
     if app_state.search_mode {
         match key {
@@ -737,7 +810,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
             _ => return EventResult::Continue,
         }
     }
-    
+
     // Get rows (filtered if search query is active)
     let rows = if app_state.search_query.is_empty() {
         app_state.results_rows()
@@ -762,7 +835,12 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
 
     // Helper: move cursor to next/prev selectable row (skip spacers).
     // Also ensures cursor stays within bounds and scrolls into view.
-    fn move_cursor(app_state: &mut AppState, rows: &[crate::tui::state::ResultsRow], delta: i32, visible_height: usize) {
+    fn move_cursor(
+        app_state: &mut AppState,
+        rows: &[crate::tui::state::ResultsRow],
+        delta: i32,
+        visible_height: usize,
+    ) {
         if rows.is_empty() {
             app_state.cursor = 0;
             app_state.scroll_offset = 0;
@@ -771,7 +849,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
 
         let max_row = rows.len().saturating_sub(1);
         let mut cur = app_state.cursor as i32;
-        
+
         loop {
             cur += delta;
             if cur < 0 {
@@ -805,9 +883,11 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
             app_state.scroll_offset = app_state.cursor;
         } else if app_state.cursor >= app_state.scroll_offset + visible_height {
             // Cursor is below visible area, scroll down
-            app_state.scroll_offset = app_state.cursor.saturating_sub(visible_height.saturating_sub(1));
+            app_state.scroll_offset = app_state
+                .cursor
+                .saturating_sub(visible_height.saturating_sub(1));
         }
-        
+
         // Ensure scroll_offset is valid
         let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
         if app_state.scroll_offset > max_scroll {
@@ -816,7 +896,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
     }
 
     let visible_height = app_state.visible_height;
-    
+
     match key {
         KeyCode::Char('q') | KeyCode::Char('Q') => EventResult::Quit,
         KeyCode::Char('/') => {
@@ -861,24 +941,27 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                 let row = rows[app_state.cursor];
                 match row {
                     crate::tui::state::ResultsRow::CategoryHeader { group_idx } => {
-                       if let Some(group) = app_state.category_groups.get_mut(group_idx) {
-                           if !group.expanded {
-                               group.expanded = true;
-                           } else {
-                               move_cursor(app_state, &rows, 1, visible_height);
-                           }
-                       }
+                        if let Some(group) = app_state.category_groups.get_mut(group_idx) {
+                            if !group.expanded {
+                                group.expanded = true;
+                            } else {
+                                move_cursor(app_state, &rows, 1, visible_height);
+                            }
+                        }
                     }
-                    crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx } => {
-                       if let Some(group) = app_state.category_groups.get_mut(group_idx) {
-                           if let Some(folder) = group.folder_groups.get_mut(folder_idx) {
-                               if !folder.expanded {
-                                   folder.expanded = true;
-                               } else {
-                                   move_cursor(app_state, &rows, 1, visible_height);
-                               }
-                           }
-                       }
+                    crate::tui::state::ResultsRow::FolderHeader {
+                        group_idx,
+                        folder_idx,
+                    } => {
+                        if let Some(group) = app_state.category_groups.get_mut(group_idx) {
+                            if let Some(folder) = group.folder_groups.get_mut(folder_idx) {
+                                if !folder.expanded {
+                                    folder.expanded = true;
+                                } else {
+                                    move_cursor(app_state, &rows, 1, visible_height);
+                                }
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -886,56 +969,62 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
             EventResult::Continue
         }
         KeyCode::Left => {
-             if !rows.is_empty() && app_state.cursor < rows.len() {
+            if !rows.is_empty() && app_state.cursor < rows.len() {
                 let row = rows[app_state.cursor];
                 match row {
                     crate::tui::state::ResultsRow::CategoryHeader { group_idx } => {
-                       if let Some(group) = app_state.category_groups.get_mut(group_idx) {
-                           if group.expanded {
-                               group.expanded = false;
-                           }
-                       }
+                        if let Some(group) = app_state.category_groups.get_mut(group_idx) {
+                            if group.expanded {
+                                group.expanded = false;
+                            }
+                        }
                     }
-                    crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx } => {
-                       // If expanded, collapse
-                       let mut collapsed_now = false;
-                       if let Some(group) = app_state.category_groups.get_mut(group_idx) {
-                           if let Some(folder) = group.folder_groups.get_mut(folder_idx) {
-                               if folder.expanded {
-                                   folder.expanded = false;
-                                   collapsed_now = true;
-                               }
-                           }
-                       }
-                       
-                       // If we didn't just collapse it (was already collapsed), jump to parent category
-                       if !collapsed_now {
+                    crate::tui::state::ResultsRow::FolderHeader {
+                        group_idx,
+                        folder_idx,
+                    } => {
+                        // If expanded, collapse
+                        let mut collapsed_now = false;
+                        if let Some(group) = app_state.category_groups.get_mut(group_idx) {
+                            if let Some(folder) = group.folder_groups.get_mut(folder_idx) {
+                                if folder.expanded {
+                                    folder.expanded = false;
+                                    collapsed_now = true;
+                                }
+                            }
+                        }
+
+                        // If we didn't just collapse it (was already collapsed), jump to parent category
+                        if !collapsed_now {
                             // Find category header for this group
                             // Search backwards for CategoryHeader with same group_idx
                             for i in (0..app_state.cursor).rev() {
-                                if let crate::tui::state::ResultsRow::CategoryHeader { group_idx: g_idx } = rows[i] {
+                                if let crate::tui::state::ResultsRow::CategoryHeader {
+                                    group_idx: g_idx,
+                                } = rows[i]
+                                {
                                     if g_idx == group_idx {
                                         app_state.cursor = i;
                                         // Ensure scroll
                                         if app_state.cursor < app_state.scroll_offset {
-                                             app_state.scroll_offset = app_state.cursor;
+                                            app_state.scroll_offset = app_state.cursor;
                                         }
                                         break;
                                     }
                                 }
                             }
-                       }
+                        }
                     }
                     crate::tui::state::ResultsRow::Item { item_idx: _ } => {
                         // Find parent header (Folder or Category)
                         // Search backwards for the first header
                         for i in (0..app_state.cursor).rev() {
                             match rows[i] {
-                                crate::tui::state::ResultsRow::FolderHeader { .. } | 
-                                crate::tui::state::ResultsRow::CategoryHeader { .. } => {
+                                crate::tui::state::ResultsRow::FolderHeader { .. }
+                                | crate::tui::state::ResultsRow::CategoryHeader { .. } => {
                                     app_state.cursor = i;
                                     if app_state.cursor < app_state.scroll_offset {
-                                         app_state.scroll_offset = app_state.cursor;
+                                        app_state.scroll_offset = app_state.cursor;
                                     }
                                     break;
                                 }
@@ -945,8 +1034,8 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                     }
                     crate::tui::state::ResultsRow::Spacer => {}
                 }
-             }
-             EventResult::Continue
+            }
+            EventResult::Continue
         }
         KeyCode::Tab => {
             // Jump to next category header (wrap around).
@@ -958,14 +1047,20 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
             let mut found = None;
 
             for i in start..rows.len() {
-                if matches!(rows[i], crate::tui::state::ResultsRow::CategoryHeader { .. }) {
+                if matches!(
+                    rows[i],
+                    crate::tui::state::ResultsRow::CategoryHeader { .. }
+                ) {
                     found = Some(i);
                     break;
                 }
             }
             if found.is_none() {
                 for i in 0..=app_state.cursor.min(rows.len().saturating_sub(1)) {
-                    if matches!(rows[i], crate::tui::state::ResultsRow::CategoryHeader { .. }) {
+                    if matches!(
+                        rows[i],
+                        crate::tui::state::ResultsRow::CategoryHeader { .. }
+                    ) {
                         found = Some(i);
                         break;
                     }
@@ -974,7 +1069,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
 
             if let Some(i) = found {
                 app_state.cursor = i;
-                
+
                 // Ensure cursor is scrolled into view
                 let visible_height = app_state.visible_height;
                 if app_state.cursor < app_state.scroll_offset {
@@ -982,9 +1077,11 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                     app_state.scroll_offset = app_state.cursor;
                 } else if app_state.cursor >= app_state.scroll_offset + visible_height {
                     // Cursor is below visible area, scroll down to show it
-                    app_state.scroll_offset = app_state.cursor.saturating_sub(visible_height.saturating_sub(1));
+                    app_state.scroll_offset = app_state
+                        .cursor
+                        .saturating_sub(visible_height.saturating_sub(1));
                 }
-                
+
                 // Ensure scroll_offset is valid
                 let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
                 if app_state.scroll_offset > max_scroll {
@@ -1003,7 +1100,10 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
 
             if app_state.cursor > 0 {
                 for i in (0..=app_state.cursor - 1).rev() {
-                    if matches!(rows[i], crate::tui::state::ResultsRow::CategoryHeader { .. }) {
+                    if matches!(
+                        rows[i],
+                        crate::tui::state::ResultsRow::CategoryHeader { .. }
+                    ) {
                         found = Some(i);
                         break;
                     }
@@ -1011,7 +1111,10 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
             }
             if found.is_none() {
                 for i in (app_state.cursor..rows.len()).rev() {
-                    if matches!(rows[i], crate::tui::state::ResultsRow::CategoryHeader { .. }) {
+                    if matches!(
+                        rows[i],
+                        crate::tui::state::ResultsRow::CategoryHeader { .. }
+                    ) {
                         found = Some(i);
                         break;
                     }
@@ -1020,7 +1123,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
 
             if let Some(i) = found {
                 app_state.cursor = i;
-                
+
                 // Ensure cursor is scrolled into view
                 let visible_height = app_state.visible_height;
                 if app_state.cursor < app_state.scroll_offset {
@@ -1028,9 +1131,11 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                     app_state.scroll_offset = app_state.cursor;
                 } else if app_state.cursor >= app_state.scroll_offset + visible_height {
                     // Cursor is below visible area, scroll down to show it
-                    app_state.scroll_offset = app_state.cursor.saturating_sub(visible_height.saturating_sub(1));
+                    app_state.scroll_offset = app_state
+                        .cursor
+                        .saturating_sub(visible_height.saturating_sub(1));
                 }
-                
+
                 // Ensure scroll_offset is valid
                 let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
                 if app_state.scroll_offset > max_scroll {
@@ -1048,7 +1153,10 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                 crate::tui::state::ResultsRow::Item { item_idx } => {
                     app_state.toggle_items([item_idx]);
                 }
-                crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx } => {
+                crate::tui::state::ResultsRow::FolderHeader {
+                    group_idx,
+                    folder_idx,
+                } => {
                     let items = app_state.folder_item_indices(group_idx, folder_idx);
                     app_state.toggle_items(items);
                 }
@@ -1078,7 +1186,10 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                             group.expanded = !any_expanded;
                         }
                     }
-                    crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx: _ } => {
+                    crate::tui::state::ResultsRow::FolderHeader {
+                        group_idx,
+                        folder_idx: _,
+                    } => {
                         // Expand/collapse all sibling folders in the same category
                         if let Some(group) = app_state.category_groups.get_mut(group_idx) {
                             // Determine the current state (if any sibling folder is expanded, collapse all; otherwise expand all)
@@ -1093,11 +1204,14 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                         // Search backwards to find the folder header or category header
                         let mut category_group_idx = None;
                         let mut folder_idx = None;
-                        
+
                         for i in (0..=app_state.cursor).rev() {
                             if let Some(r) = rows.get(i) {
                                 match *r {
-                                    crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx: f_idx } => {
+                                    crate::tui::state::ResultsRow::FolderHeader {
+                                        group_idx,
+                                        folder_idx: f_idx,
+                                    } => {
                                         category_group_idx = Some(group_idx);
                                         folder_idx = Some(f_idx);
                                         break;
@@ -1110,19 +1224,21 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                                 }
                             }
                         }
-                        
+
                         if let Some(group_idx) = category_group_idx {
                             if let Some(_f_idx) = folder_idx {
                                 // Item is under a folder - expand/collapse all sibling folders
                                 if let Some(group) = app_state.category_groups.get_mut(group_idx) {
-                                    let any_expanded = group.folder_groups.iter().any(|f| f.expanded);
+                                    let any_expanded =
+                                        group.folder_groups.iter().any(|f| f.expanded);
                                     for folder in &mut group.folder_groups {
                                         folder.expanded = !any_expanded;
                                     }
                                 }
                             } else {
                                 // Item is directly under category - expand/collapse all sibling categories
-                                let any_expanded = app_state.category_groups.iter().any(|g| g.expanded);
+                                let any_expanded =
+                                    app_state.category_groups.iter().any(|g| g.expanded);
                                 for group in &mut app_state.category_groups {
                                     group.expanded = !any_expanded;
                                 }
@@ -1133,7 +1249,7 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                 }
                 return EventResult::Continue;
             }
-            
+
             // Regular Enter (without Ctrl) - expand/collapse groups
             let Some(row) = rows.get(app_state.cursor) else {
                 return EventResult::Continue;
@@ -1146,7 +1262,10 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
                         open_file(&item.path);
                     }
                 }
-                crate::tui::state::ResultsRow::FolderHeader { group_idx, folder_idx } => {
+                crate::tui::state::ResultsRow::FolderHeader {
+                    group_idx,
+                    folder_idx,
+                } => {
                     if let Some(group) = app_state.category_groups.get_mut(group_idx) {
                         if let Some(folder) = group.folder_groups.get_mut(folder_idx) {
                             folder.expanded = !folder.expanded;
@@ -1180,7 +1299,11 @@ fn handle_results_event(app_state: &mut AppState, key: KeyCode, modifiers: KeyMo
     }
 }
 
-fn handle_preview_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_preview_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     match key {
         KeyCode::Esc => {
             // Back to results
@@ -1234,7 +1357,11 @@ fn handle_preview_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
     }
 }
 
-fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_confirm_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     let rows = app_state.confirm_rows();
     let max_row = rows.len().saturating_sub(1);
 
@@ -1250,7 +1377,12 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
     }
 
     // Helper: move cursor to next/prev selectable row (skip spacers).
-    fn move_cursor(app_state: &mut AppState, rows: &[crate::tui::state::ConfirmRow], delta: i32, visible_height: usize) {
+    fn move_cursor(
+        app_state: &mut AppState,
+        rows: &[crate::tui::state::ConfirmRow],
+        delta: i32,
+        visible_height: usize,
+    ) {
         if rows.is_empty() {
             app_state.cursor = 0;
             app_state.scroll_offset = 0;
@@ -1259,7 +1391,7 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
 
         let max_row = rows.len().saturating_sub(1);
         let mut cur = app_state.cursor as i32;
-        
+
         loop {
             cur += delta;
             if cur < 0 {
@@ -1288,15 +1420,17 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
         if app_state.cursor < app_state.scroll_offset {
             app_state.scroll_offset = app_state.cursor;
         } else if app_state.cursor >= app_state.scroll_offset + visible_height {
-            app_state.scroll_offset = app_state.cursor.saturating_sub(visible_height.saturating_sub(1));
+            app_state.scroll_offset = app_state
+                .cursor
+                .saturating_sub(visible_height.saturating_sub(1));
         }
-        
+
         let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
         if app_state.scroll_offset > max_scroll {
             app_state.scroll_offset = max_scroll.max(0);
         }
     }
-    
+
     let visible_height = app_state.visible_height;
 
     match key {
@@ -1327,7 +1461,10 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
                     // Toggle selection - item stays visible, checkbox updates
                     app_state.toggle_items([item_idx]);
                 }
-                crate::tui::state::ConfirmRow::FolderHeader { cat_idx, folder_idx } => {
+                crate::tui::state::ConfirmRow::FolderHeader {
+                    cat_idx,
+                    folder_idx,
+                } => {
                     // Toggle all items in this folder
                     let confirm_groups = app_state.confirm_category_groups();
                     if let Some(group) = confirm_groups.get(cat_idx) {
@@ -1343,7 +1480,11 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
                     if let Some(group) = confirm_groups.get(cat_idx) {
                         // Get all items in this category from the snapshot
                         let item_indices: Vec<usize> = if group.grouped_by_folder {
-                            group.folder_groups.iter().flat_map(|fg| fg.items.iter().copied()).collect()
+                            group
+                                .folder_groups
+                                .iter()
+                                .flat_map(|fg| fg.items.iter().copied())
+                                .collect()
                         } else {
                             group.items.clone()
                         };
@@ -1369,7 +1510,10 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
                         app_state.toggle_confirm_category(&group.name);
                     }
                 }
-                crate::tui::state::ConfirmRow::FolderHeader { cat_idx, folder_idx } => {
+                crate::tui::state::ConfirmRow::FolderHeader {
+                    cat_idx,
+                    folder_idx,
+                } => {
                     // Toggle folder expansion
                     let confirm_groups = app_state.confirm_category_groups();
                     if let Some(group) = confirm_groups.get(cat_idx) {
@@ -1436,12 +1580,20 @@ fn handle_confirm_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
     }
 }
 
-fn handle_cleaning_event(_app_state: &mut AppState, _key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_cleaning_event(
+    _app_state: &mut AppState,
+    _key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     // Cleaning is in progress - ignore input until complete
     EventResult::Continue
 }
 
-fn handle_success_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_success_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     match key {
         KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Char('B') => {
             // Navigate back to Results if there are remaining items
@@ -1464,9 +1616,18 @@ fn handle_success_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
     }
 }
 
-fn handle_restore_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_restore_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     match key {
-        KeyCode::Esc | KeyCode::Backspace | KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::Char('q') | KeyCode::Char('Q') => {
+        KeyCode::Esc
+        | KeyCode::Backspace
+        | KeyCode::Char('b')
+        | KeyCode::Char('B')
+        | KeyCode::Char('q')
+        | KeyCode::Char('Q') => {
             // Return to dashboard
             *app_state = AppState::new();
             EventResult::Continue
@@ -1475,40 +1636,40 @@ fn handle_restore_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyM
     }
 }
 
-fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers: KeyModifiers) -> EventResult {
+fn handle_disk_insights_event(
+    app_state: &mut AppState,
+    key: KeyCode,
+    _modifiers: KeyModifiers,
+) -> EventResult {
     use crate::disk_usage::{find_folder_by_path, SortBy};
-    
-    if let crate::tui::state::Screen::DiskInsights { 
-        ref insights, 
-        ref mut current_path, 
-        ref mut cursor, 
-        ref mut sort_by 
-    } = app_state.screen {
-        
+
+    if let crate::tui::state::Screen::DiskInsights {
+        ref insights,
+        ref mut current_path,
+        ref mut cursor,
+        ref mut sort_by,
+    } = app_state.screen
+    {
         // Get current folder node
-        let current_node = find_folder_by_path(&insights.root, current_path)
-            .unwrap_or(&insights.root);
-        
+        let current_node =
+            find_folder_by_path(&insights.root, current_path).unwrap_or(&insights.root);
+
         // Filter children folders if search query is active
         let mut children = current_node.children.clone();
         let mut files = current_node.files.clone();
         if !app_state.search_query.is_empty() {
             let query = app_state.search_query.to_lowercase();
-            children.retain(|child| {
-                child.name.to_lowercase().contains(&query)
-            });
-            files.retain(|file| {
-                file.name.to_lowercase().contains(&query)
-            });
+            children.retain(|child| child.name.to_lowercase().contains(&query));
+            files.retain(|file| file.name.to_lowercase().contains(&query));
         }
-        
+
         // Sort children folders (must match render order)
         match *sort_by {
             SortBy::Size => children.sort_by(|a, b| b.size.cmp(&a.size)),
             SortBy::Name => children.sort_by(|a, b| a.name.cmp(&b.name)),
             SortBy::Files => children.sort_by(|a, b| b.file_count.cmp(&a.file_count)),
         }
-        
+
         // Sort files (must match render order)
         match *sort_by {
             SortBy::Size => files.sort_by(|a, b| b.size.cmp(&a.size)),
@@ -1516,18 +1677,18 @@ fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers
             SortBy::Files => {
                 // For files, Files sort doesn't make sense, so use size
                 files.sort_by(|a, b| b.size.cmp(&a.size));
-            },
+            }
         }
-        
+
         let children_count = children.len();
         let files_count = files.len();
         let total_items = children_count + files_count;
-        
+
         // Ensure cursor is within bounds of filtered list
         if *cursor >= total_items && total_items > 0 {
             *cursor = total_items.saturating_sub(1);
         }
-        
+
         // If in search mode, handle typing
         if app_state.search_mode {
             match key {
@@ -1564,7 +1725,7 @@ fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers
                 _ => return EventResult::Continue,
             }
         }
-        
+
         match key {
             KeyCode::Char('q') | KeyCode::Char('Q') => {
                 // Go back to Results if there are scan results, otherwise Dashboard
@@ -1606,12 +1767,15 @@ fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers
                 } else {
                     // Navigate back to parent if not at root
                     if let Some(parent) = current_path.parent() {
-                        if parent != &insights.root.path && parent.starts_with(&insights.root.path) {
+                        if parent != &insights.root.path && parent.starts_with(&insights.root.path)
+                        {
                             *current_path = parent.to_path_buf();
                             *cursor = 0;
                         } else {
                             // At root, go back to Results if there are scan results, otherwise Dashboard
-                            if !app_state.all_items.is_empty() || !app_state.category_groups.is_empty() {
+                            if !app_state.all_items.is_empty()
+                                || !app_state.category_groups.is_empty()
+                            {
                                 app_state.screen = crate::tui::state::Screen::Results;
                             } else {
                                 app_state.screen = crate::tui::state::Screen::Dashboard;
@@ -1620,7 +1784,8 @@ fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers
                         }
                     } else {
                         // At root, go back to Results if there are scan results, otherwise Dashboard
-                        if !app_state.all_items.is_empty() || !app_state.category_groups.is_empty() {
+                        if !app_state.all_items.is_empty() || !app_state.category_groups.is_empty()
+                        {
                             app_state.screen = crate::tui::state::Screen::Results;
                         } else {
                             app_state.screen = crate::tui::state::Screen::Dashboard;
@@ -1654,7 +1819,10 @@ fn handle_disk_insights_event(app_state: &mut AppState, key: KeyCode, _modifiers
                     // Selected item is a folder - drill into it
                     let selected_child = &children[*cursor];
                     // Only navigate if folder has files or has subdirectories
-                    if selected_child.file_count > 0 || !selected_child.children.is_empty() || !selected_child.files.is_empty() {
+                    if selected_child.file_count > 0
+                        || !selected_child.children.is_empty()
+                        || !selected_child.files.is_empty()
+                    {
                         *current_path = selected_child.path.clone();
                         *cursor = 0;
                         // Clear search when entering a folder

@@ -1,6 +1,6 @@
+use crate::theme::Theme;
 use serde::Serialize;
 use std::path::PathBuf;
-use crate::theme::Theme;
 
 /// Output verbosity mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,21 +83,27 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
     if mode == OutputMode::Quiet {
         return;
     }
-    
+
     println!();
     println!("{}", Theme::header("Sweeper Scan Results"));
     println!("{}", Theme::divider_bold(60));
     println!();
-    println!("{:<15} {:>8} {:>12} {:>20}", 
-        Theme::primary("Category"), 
-        Theme::primary("Items"), 
-        Theme::primary("Size"), 
-        Theme::primary("Status"));
+    println!(
+        "{:<15} {:>8} {:>12} {:>20}",
+        Theme::primary("Category"),
+        Theme::primary("Items"),
+        Theme::primary("Size"),
+        Theme::primary("Status")
+    );
     println!("{}", Theme::divider(60));
-    
+
     let categories = [
         ("Package cache", &results.cache, "[OK] Safe to clean"),
-        ("Application cache", &results.app_cache, "[OK] Safe to clean"),
+        (
+            "Application cache",
+            &results.app_cache,
+            "[OK] Safe to clean",
+        ),
         ("Temp", &results.temp, "[OK] Safe to clean"),
         ("Trash", &results.trash, "[OK] Safe to clean"),
         ("Build", &results.build, "[OK] Inactive projects"),
@@ -109,12 +115,12 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
         ("Empty", &results.empty, "[OK] Safe to clean"),
         ("Duplicates", &results.duplicates, "[!] Review suggested"),
     ];
-    
+
     for (name, result, status) in categories {
         if result.items > 0 {
-            let status_colored = if status.starts_with("[OK]") { 
+            let status_colored = if status.starts_with("[OK]") {
                 Theme::status_safe(status)
-            } else { 
+            } else {
                 Theme::status_review(status)
             };
             println!(
@@ -124,7 +130,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
                 Theme::size(&result.size_human()),
                 status_colored
             );
-            
+
             // In verbose mode, show first few paths
             if mode == OutputMode::Verbose && !result.paths.is_empty() {
                 let show_count = std::cmp::min(3, result.paths.len());
@@ -132,10 +138,14 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
                     println!("  {}", Theme::muted(&path.display().to_string()));
                 }
                 if result.paths.len() > show_count {
-                    println!("  {} ... and {} more", Theme::muted(""), Theme::muted(&(result.paths.len() - show_count).to_string()));
+                    println!(
+                        "  {} ... and {} more",
+                        Theme::muted(""),
+                        Theme::muted(&(result.paths.len() - show_count).to_string())
+                    );
                 }
             }
-            
+
             // In very verbose mode, show all paths
             if mode == OutputMode::VeryVerbose {
                 for path in &result.paths {
@@ -144,7 +154,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
             }
         }
     }
-    
+
     let total_items = results.cache.items
         + results.app_cache.items
         + results.temp.items
@@ -169,11 +179,14 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
         + results.system.size_bytes
         + results.empty.size_bytes
         + results.duplicates.size_bytes;
-    
+
     println!("{}", Theme::divider(60));
-    
+
     if total_items == 0 {
-        println!("{}", Theme::success("Your system is clean! No reclaimable space found."));
+        println!(
+            "{}",
+            Theme::success("Your system is clean! No reclaimable space found.")
+        );
     } else {
         println!(
             "{:<15} {:>8} {:>12} {:>20}",
@@ -183,7 +196,10 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
             Theme::success("Reclaimable")
         );
         println!();
-        println!("Run {} to remove these files.", Theme::command("sweeper clean --all"));
+        println!(
+            "Run {} to remove these files.",
+            Theme::command("sweeper clean --all")
+        );
     }
     println!();
 }
@@ -197,7 +213,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.cache.items,
                 size_bytes: results.cache.size_bytes,
                 size_human: results.cache.size_human(),
-                paths: results.cache.paths.iter()
+                paths: results
+                    .cache
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -205,7 +224,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.app_cache.items,
                 size_bytes: results.app_cache.size_bytes,
                 size_human: results.app_cache.size_human(),
-                paths: results.app_cache.paths.iter()
+                paths: results
+                    .app_cache
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -213,7 +235,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.temp.items,
                 size_bytes: results.temp.size_bytes,
                 size_human: results.temp.size_human(),
-                paths: results.temp.paths.iter()
+                paths: results
+                    .temp
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -221,7 +246,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.trash.items,
                 size_bytes: results.trash.size_bytes,
                 size_human: results.trash.size_human(),
-                paths: results.trash.paths.iter()
+                paths: results
+                    .trash
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -229,7 +257,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.build.items,
                 size_bytes: results.build.size_bytes,
                 size_human: results.build.size_human(),
-                paths: results.build.paths.iter()
+                paths: results
+                    .build
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -237,7 +268,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.downloads.items,
                 size_bytes: results.downloads.size_bytes,
                 size_human: results.downloads.size_human(),
-                paths: results.downloads.paths.iter()
+                paths: results
+                    .downloads
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -245,7 +279,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.large.items,
                 size_bytes: results.large.size_bytes,
                 size_human: results.large.size_human(),
-                paths: results.large.paths.iter()
+                paths: results
+                    .large
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -253,7 +290,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.old.items,
                 size_bytes: results.old.size_bytes,
                 size_human: results.old.size_human(),
-                paths: results.old.paths.iter()
+                paths: results
+                    .old
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -261,7 +301,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.browser.items,
                 size_bytes: results.browser.size_bytes,
                 size_human: results.browser.size_human(),
-                paths: results.browser.paths.iter()
+                paths: results
+                    .browser
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -269,7 +312,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.system.items,
                 size_bytes: results.system.size_bytes,
                 size_human: results.system.size_human(),
-                paths: results.system.paths.iter()
+                paths: results
+                    .system
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -277,7 +323,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.empty.items,
                 size_bytes: results.empty.size_bytes,
                 size_human: results.empty.size_human(),
-                paths: results.empty.paths.iter()
+                paths: results
+                    .empty
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -285,7 +334,10 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 items: results.duplicates.items,
                 size_bytes: results.duplicates.size_bytes,
                 size_human: results.duplicates.size_human(),
-                paths: results.duplicates.paths.iter()
+                paths: results
+                    .duplicates
+                    .paths
+                    .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -332,7 +384,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
             ),
         },
     };
-    
+
     println!("{}", serde_json::to_string_pretty(&json_results)?);
     Ok(())
 }
@@ -341,11 +393,11 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
     if mode == OutputMode::Quiet {
         return;
     }
-    
+
     println!();
     println!("Scan Results");
     println!();
-    
+
     // Define categories with their display names
     let mut categories: Vec<(&str, &CategoryResult)> = vec![
         ("Trash", &results.trash),
@@ -361,15 +413,15 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         ("Browser Cache", &results.browser),
         ("Empty Folders", &results.empty),
     ];
-    
+
     // Filter out categories with no items and sort by size descending
     categories.retain(|(_, result)| result.items > 0);
     categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
-    
+
     // Print table header
     println!("{:<25} {:>10} {:>12}", "Category", "Files", "Size");
     println!("{}", "─".repeat(47));
-    
+
     // Print category rows
     for (name, result) in &categories {
         println!(
@@ -379,7 +431,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
             result.size_human()
         );
     }
-    
+
     // Calculate totals
     let total_items = results.cache.items
         + results.app_cache.items
@@ -405,7 +457,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.system.size_bytes
         + results.empty.size_bytes
         + results.duplicates.size_bytes;
-    
+
     // Print separator and total
     println!("{}", "─".repeat(47));
     println!(
@@ -428,24 +480,26 @@ pub fn print_disk_insights(
     if mode == OutputMode::Quiet {
         return;
     }
-    
+
     use crate::disk_usage::get_top_folders;
-    
+
     // Get top folders
     let top_folders = get_top_folders(&insights.root, top_n);
-    
+
     println!();
-    println!("{}  {}  |  Total: {}  |  {} files",
+    println!(
+        "{}  {}  |  Total: {}  |  {} files",
         Theme::header("Disk Insights"),
         Theme::primary(&root_path.display().to_string()),
         Theme::size(&bytesize::to_string(insights.total_size, true)),
         Theme::value(&format_number(insights.total_files))
     );
     println!();
-    
+
     // Show root with 100% bar
     let root_bar = render_progress_bar(100.0, 20);
-    println!("{}  {}  {}  {}",
+    println!(
+        "{}  {}  {}  {}",
         Theme::secondary("#"),
         root_bar,
         Theme::value("100.0%"),
@@ -453,15 +507,16 @@ pub fn print_disk_insights(
     );
     println!("   {}", Theme::muted(&root_path.display().to_string()));
     println!();
-    
+
     // Show top folders
     for (i, folder) in top_folders.iter().enumerate() {
         let num = i + 1;
         let bar = render_progress_bar(folder.percentage, 20);
         let size_str = bytesize::to_string(folder.size, true);
         let files_str = format_number(folder.file_count);
-        
-        println!("{}  {}  {}  {}  {}  {}",
+
+        println!(
+            "{}  {}  {}  {}  {}  {}",
             Theme::value(&num.to_string()),
             bar,
             Theme::value(&format!("{:.1}%", folder.percentage)),
@@ -470,7 +525,7 @@ pub fn print_disk_insights(
             Theme::muted(&format!("({} files)", files_str))
         );
     }
-    
+
     // Show largest files if available
     if !insights.largest_files.is_empty() {
         println!();
@@ -479,16 +534,18 @@ pub fn print_disk_insights(
         println!("{}", Theme::primary("Largest Files:"));
         for (file_path, size) in insights.largest_files.iter().take(5) {
             let relative = crate::utils::to_relative_path(file_path, root_path);
-            println!("  {}  {}",
+            println!(
+                "  {}  {}",
                 Theme::size(&bytesize::to_string(*size, true)),
                 Theme::muted(&relative)
             );
         }
     }
-    
+
     println!();
     if mode == OutputMode::Normal || mode == OutputMode::Verbose {
-        println!("Run {} to explore interactively.",
+        println!(
+            "Run {} to explore interactively.",
             Theme::command("sweeper analyze --interactive")
         );
     }
@@ -500,7 +557,8 @@ fn render_progress_bar(percentage: f64, width: usize) -> String {
     let filled = (percentage / 100.0 * width as f64).round() as usize;
     let filled = filled.min(width);
     let empty = width.saturating_sub(filled);
-    format!("{}{}",
+    format!(
+        "{}{}",
         Theme::size(&"█".repeat(filled)),
         Theme::muted(&"░".repeat(empty))
     )

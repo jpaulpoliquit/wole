@@ -1,20 +1,20 @@
 //! Scanning screen with progress bars
 
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
-use bytesize;
 use crate::tui::{
     state::AppState,
     theme::Styles,
     widgets::{
-        progress::render_category_progress,
-        shortcuts::{render_shortcuts, get_shortcuts},
         logo::{render_logo, render_tagline, LOGO_WITH_TAGLINE_HEIGHT},
+        progress::render_category_progress,
+        shortcuts::{get_shortcuts, render_shortcuts},
     },
+};
+use bytesize;
+use ratatui::{
+    layout::{Constraint, Direction, Layout},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 /// Spinner frames for animation
@@ -28,11 +28,11 @@ fn get_spinner(tick: u64) -> &'static str {
 fn fun_comparison_short(bytes: u64) -> Option<String> {
     const MB: u64 = 1_000_000;
     const GB: u64 = 1_000_000_000;
-    
-    let game_size: u64 = 50 * GB;           // ~50 GB for AAA game
-    let node_modules_size: u64 = 500 * MB;  // ~500 MB average node_modules
-    let floppy_size: u64 = 1_440_000;       // 1.44 MB floppy disk
-    
+
+    let game_size: u64 = 50 * GB; // ~50 GB for AAA game
+    let node_modules_size: u64 = 500 * MB; // ~500 MB average node_modules
+    let floppy_size: u64 = 1_440_000; // 1.44 MB floppy disk
+
     if bytes >= 10 * GB {
         let count = bytes / game_size;
         if count >= 1 {
@@ -59,11 +59,11 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT),  // Logo + 2 blank lines + tagline
-            Constraint::Length(3),  // Status with spinner
-            Constraint::Min(8),     // Progress bars
-            Constraint::Length(6),  // Stats (1 for label + 5 for box)
-            Constraint::Length(3),  // Shortcuts
+            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT), // Logo + 2 blank lines + tagline
+            Constraint::Length(3),                        // Status with spinner
+            Constraint::Min(8),                           // Progress bars
+            Constraint::Length(6),                        // Stats (1 for label + 5 for box)
+            Constraint::Length(3),                        // Shortcuts
         ])
         .split(area);
 
@@ -78,27 +78,26 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
         } else {
             format!("{}  Scanning {}...", spinner, progress.current_category)
         };
-        
-        let status_lines = vec![
-            Line::from(vec![
-                Span::styled(status_text, Styles::emphasis()),
-            ]),
-        ];
-        let status = Paragraph::new(status_lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Styles::border())
-                    .title("SCANNING")
-                    .padding(ratatui::widgets::Padding::uniform(1)),
-            );
+
+        let status_lines = vec![Line::from(vec![Span::styled(
+            status_text,
+            Styles::emphasis(),
+        )])];
+        let status = Paragraph::new(status_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Styles::border())
+                .title("SCANNING")
+                .padding(ratatui::widgets::Padding::uniform(1)),
+        );
         f.render_widget(status, chunks[1]);
 
         // Progress bars
         if progress.category_progress.is_empty() {
-            let empty_msg = Paragraph::new(Line::from(vec![
-                Span::styled(format!("{}  Initializing scan...", spinner), Styles::emphasis()),
-            ]))
+            let empty_msg = Paragraph::new(Line::from(vec![Span::styled(
+                format!("{}  Initializing scan...", spinner),
+                Styles::emphasis(),
+            )]))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -118,49 +117,56 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
                 Constraint::Min(3),    // Stats box
             ])
             .split(chunks[3]);
-        
+
         // Section label outside the box
-        let label = Paragraph::new(Line::from(vec![
-            Span::styled("PROGRESS", Styles::header()),
-        ]))
-        .alignment(ratatui::layout::Alignment::Left);
+        let label = Paragraph::new(Line::from(vec![Span::styled("PROGRESS", Styles::header())]))
+            .alignment(ratatui::layout::Alignment::Left);
         f.render_widget(label, stats_chunks[0]);
-        
+
         // Stats content in box without title
         let mut size_spans = vec![
             Span::styled("  Found: ", Styles::header()),
-            Span::styled(format!("{} items", progress.total_found), Styles::emphasis()),
+            Span::styled(
+                format!("{} items", progress.total_found),
+                Styles::emphasis(),
+            ),
             Span::styled("    │    ", Styles::secondary()),
             Span::styled("Size: ", Styles::header()),
-            Span::styled(bytesize::to_string(progress.total_size, true), Styles::emphasis()),
+            Span::styled(
+                bytesize::to_string(progress.total_size, true),
+                Styles::emphasis(),
+            ),
         ];
-        
+
         // Add fun comparison if size is significant
         if let Some(comparison) = fun_comparison_short(progress.total_size) {
             size_spans.push(Span::styled("  ", Styles::secondary()));
             size_spans.push(Span::styled(comparison, Styles::secondary()));
         }
-        
+
         let stats_lines = vec![
             Line::from(size_spans),
             Line::from(""),
             Line::from(vec![
                 Span::styled("  Scanned: ", Styles::secondary()),
-                Span::styled(format!("{} locations", progress.total_scanned), Styles::secondary()),
+                Span::styled(
+                    format!("{} locations", progress.total_scanned),
+                    Styles::secondary(),
+                ),
             ]),
         ];
-        let stats = Paragraph::new(stats_lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Styles::border()),
-            );
+        let stats = Paragraph::new(stats_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Styles::border()),
+        );
         f.render_widget(stats, stats_chunks[1]);
     } else {
         // Fallback
-        let empty_msg = Paragraph::new(Line::from(vec![
-            Span::styled("No scan in progress", Styles::secondary()),
-        ]))
+        let empty_msg = Paragraph::new(Line::from(vec![Span::styled(
+            "No scan in progress",
+            Styles::secondary(),
+        )]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -182,11 +188,11 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT),  // Logo + 2 blank lines + tagline
-            Constraint::Length(3),  // Status
-            Constraint::Min(1),     // Progress
-            Constraint::Length(3),  // Stats
-            Constraint::Length(3),  // Shortcuts
+            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT), // Logo + 2 blank lines + tagline
+            Constraint::Length(3),                        // Status
+            Constraint::Min(1),                           // Progress
+            Constraint::Length(3),                        // Stats
+            Constraint::Length(3),                        // Shortcuts
         ])
         .split(area);
 
@@ -195,9 +201,10 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
     render_tagline(f, chunks[0]);
 
     // Header with spinner
-    let header = Paragraph::new(Line::from(vec![
-        Span::styled(format!("{}  Cleaning files...", spinner), Styles::emphasis()),
-    ]))
+    let header = Paragraph::new(Line::from(vec![Span::styled(
+        format!("{}  Cleaning files...", spinner),
+        Styles::emphasis(),
+    )]))
     .block(
         Block::default()
             .borders(Borders::ALL)
@@ -216,15 +223,15 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
 
         use crate::tui::widgets::progress::render_progress_bar;
         use ratatui::layout::{Constraint, Direction, Layout};
-        
+
         let progress_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Progress bar
-                Constraint::Min(1),     // Current file display
+                Constraint::Length(3), // Progress bar
+                Constraint::Min(1),    // Current file display
             ])
             .split(chunks[2]);
-            
+
         render_progress_bar(
             f,
             progress_chunks[0],
@@ -241,7 +248,10 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
             let path_str = current_path.display().to_string();
             let max_len = (progress_chunks[1].width as usize).saturating_sub(4); // Account for padding
             let display_path = if path_str.len() > max_len {
-                format!("...{}", &path_str[path_str.len().saturating_sub(max_len.saturating_sub(3))..])
+                format!(
+                    "...{}",
+                    &path_str[path_str.len().saturating_sub(max_len.saturating_sub(3))..]
+                )
             } else {
                 path_str
             };
@@ -249,10 +259,11 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
         } else {
             "  Preparing...".to_string()
         };
-        
-        let current_file_paragraph = Paragraph::new(Line::from(vec![
-            Span::styled(current_file_text, Styles::primary()),
-        ]))
+
+        let current_file_paragraph = Paragraph::new(Line::from(vec![Span::styled(
+            current_file_text,
+            Styles::primary(),
+        )]))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -266,13 +277,12 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
             "  Cleaned: {} items   │   Errors: {}",
             progress.cleaned, progress.errors
         );
-        let status_paragraph = Paragraph::new(status_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Styles::border())
-                    .title("STATUS"),
-            );
+        let status_paragraph = Paragraph::new(status_text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Styles::border())
+                .title("STATUS"),
+        );
         f.render_widget(status_paragraph, chunks[3]);
     }
 

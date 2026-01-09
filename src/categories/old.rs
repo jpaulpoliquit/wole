@@ -15,7 +15,7 @@ const MAX_RESULTS: usize = 200;
 const MIN_FILE_SIZE: u64 = 10 * 1024; // 10 KB
 
 /// Scan for old files in user directories
-/// 
+///
 /// Optimizations:
 /// - Uses cached git root lookups (100x faster)
 /// - Skips walking into node_modules, .git, etc. (early bailout)
@@ -25,39 +25,39 @@ const MIN_FILE_SIZE: u64 = 10 * 1024; // 10 KB
 /// - Limits to top 200 results
 pub fn scan(_root: &Path, min_age_days: u64, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
-    
+
     let cutoff = Utc::now() - Duration::days(min_age_days as i64);
-    
+
     // Get user directories to scan
     let user_dirs = get_user_directories()?;
-    
+
     // Collect files with sizes for sorting
     let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
-    
+
     for dir in user_dirs {
         scan_directory(&dir, &cutoff, &mut files_with_sizes, config)?;
     }
-    
+
     // Sort by size descending (biggest first)
     files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
-    
+
     // Limit results
     files_with_sizes.truncate(MAX_RESULTS);
-    
+
     // Build result
     for (path, size) in files_with_sizes {
         result.items += 1;
         result.size_bytes += size;
         result.paths.push(path);
     }
-    
+
     Ok(result)
 }
 
 /// Get user directories to scan (Downloads, Documents, Desktop, Pictures, Videos, Music)
 fn get_user_directories() -> Result<Vec<PathBuf>> {
     let mut dirs = Vec::new();
-    
+
     if let Ok(user_profile) = env::var("USERPROFILE") {
         let profile_path = PathBuf::from(&user_profile);
         dirs.push(profile_path.join("Downloads"));
@@ -67,7 +67,7 @@ fn get_user_directories() -> Result<Vec<PathBuf>> {
         dirs.push(profile_path.join("Videos"));
         dirs.push(profile_path.join("Music"));
     }
-    
+
     Ok(dirs)
 }
 
@@ -83,24 +83,26 @@ fn scan_directory(
     if !dir.exists() {
         return Ok(());
     }
-    
+
     use jwalk::WalkDir;
-    
+
     const MAX_DEPTH: usize = 20;
-    
+
     // Clone config for thread-safe access
     let config_arc = Arc::new(config.clone());
-    
+
     let walk = WalkDir::new(dir)
         .max_depth(MAX_DEPTH)
         .follow_links(false)
-        .parallelism(jwalk::Parallelism::RayonDefaultPool { busy_timeout: std::time::Duration::from_secs(1) })
+        .parallelism(jwalk::Parallelism::RayonDefaultPool {
+            busy_timeout: std::time::Duration::from_secs(1),
+        })
         .process_read_dir(move |_depth, _path, _state, children| {
             let config = Arc::clone(&config_arc);
             children.retain(|entry| {
                 if let Ok(ref e) = entry {
                     let path = e.path();
-                    
+
                     // 1. Skip symlinks/junctions
                     if e.file_type().is_symlink() || utils::is_windows_reparse_point(&path) {
                         return false;
@@ -110,13 +112,26 @@ fn scan_directory(
                         // 2. Skip based on name
                         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                             let name_low = name.to_lowercase();
-                            if matches!(name_low.as_str(),
-                                "node_modules" | ".git" | ".hg" | ".svn" |
-                                "target" | ".gradle" | "__pycache__" |
-                                ".venv" | "venv" | ".next" | ".nuxt" |
-                                "windows" | "program files" | "program files (x86)" |
-                                "$recycle.bin" | "system volume information" |
-                                "appdata" | "programdata"
+                            if matches!(
+                                name_low.as_str(),
+                                "node_modules"
+                                    | ".git"
+                                    | ".hg"
+                                    | ".svn"
+                                    | "target"
+                                    | ".gradle"
+                                    | "__pycache__"
+                                    | ".venv"
+                                    | "venv"
+                                    | ".next"
+                                    | ".nuxt"
+                                    | "windows"
+                                    | "program files"
+                                    | "program files (x86)"
+                                    | "$recycle.bin"
+                                    | "system volume information"
+                                    | "appdata"
+                                    | "programdata"
                             ) {
                                 return false;
                             }
@@ -135,7 +150,7 @@ fn scan_directory(
     for entry in walk {
         if let Ok(e) = entry {
             let path = e.path();
-            
+
             // We only care about files
             if !e.file_type().is_file() {
                 continue;
@@ -161,13 +176,13 @@ fn scan_directory(
                             continue;
                         }
                     }
-                    
+
                     files.push((path, metadata.len()));
                 }
             }
         }
     }
-    
+
     Ok(())
 }
 

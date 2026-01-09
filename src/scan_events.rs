@@ -27,4 +27,3 @@ pub enum ScanProgressEvent {
         size_bytes: u64,
     },
 }
-

@@ -25,7 +25,7 @@ pub struct FolderNode {
     pub file_count: u64,
     pub children: Vec<FolderNode>,
     pub files: Vec<FileInfo>, // Files directly in this directory (not in subdirectories)
-    pub percentage: f64, // % of parent's total size
+    pub percentage: f64,      // % of parent's total size
 }
 
 /// Complete disk insights data
@@ -49,22 +49,22 @@ pub enum SortBy {
 /// Scan a directory and build a folder tree with sizes
 pub fn scan_directory(path: &Path, max_depth: u8) -> Result<DiskInsights> {
     let start_time = Instant::now();
-    
+
     // First pass: collect all files and their sizes, grouped by directory
     let mut dir_sizes: HashMap<PathBuf, u64> = HashMap::new();
     let mut dir_file_counts: HashMap<PathBuf, u64> = HashMap::new();
     let mut dir_files: HashMap<PathBuf, Vec<(PathBuf, u64)>> = HashMap::new(); // Files per directory
     let mut file_sizes: Vec<(PathBuf, u64)> = Vec::new();
-    
+
     let total_size = AtomicU64::new(0);
     let total_files = AtomicU64::new(0);
-    
+
     // Use jwalk for parallel traversal
     WalkDir::new(path)
         .max_depth(max_depth as usize)
         .follow_links(false)
-        .parallelism(jwalk::Parallelism::RayonDefaultPool { 
-            busy_timeout: Duration::from_secs(1) 
+        .parallelism(jwalk::Parallelism::RayonDefaultPool {
+            busy_timeout: Duration::from_secs(1),
         })
         .process_read_dir(|_depth, _path, _state, children| {
             // Filter out entries we want to skip
@@ -94,28 +94,31 @@ pub fn scan_directory(path: &Path, max_depth: u8) -> Result<DiskInsights> {
                         let size = meta.len();
                         total_size.fetch_add(size, Ordering::Relaxed);
                         total_files.fetch_add(1, Ordering::Relaxed);
-                        
+
                         // Track file size for largest files list
                         file_sizes.push((e.path().to_path_buf(), size));
-                        
+
                         // Add file to its parent directory's file list
                         if let Some(parent) = e.path().parent() {
-                            dir_files.entry(parent.to_path_buf())
+                            dir_files
+                                .entry(parent.to_path_buf())
                                 .or_insert_with(Vec::new)
                                 .push((e.path().to_path_buf(), size));
-                            
+
                             *dir_sizes.entry(parent.to_path_buf()).or_insert(0) += size;
                             *dir_file_counts.entry(parent.to_path_buf()).or_insert(0) += 1;
-                            
+
                             // Also add to all ancestor directories
                             let mut current = parent;
                             while let Some(ancestor) = current.parent() {
                                 *dir_sizes.entry(ancestor.to_path_buf()).or_insert(0) += size;
                                 *dir_file_counts.entry(ancestor.to_path_buf()).or_insert(0) += 1;
                                 current = ancestor;
-                                
+
                                 // Stop if we've gone too deep or reached the root
-                                if current == path || current.components().count() < path.components().count() {
+                                if current == path
+                                    || current.components().count() < path.components().count()
+                                {
                                     break;
                                 }
                             }
@@ -124,17 +127,24 @@ pub fn scan_directory(path: &Path, max_depth: u8) -> Result<DiskInsights> {
                 }
             }
         });
-    
+
     let total_size = total_size.load(Ordering::Relaxed);
     let total_files = total_files.load(Ordering::Relaxed);
-    
+
     // Get top 10 largest files
     file_sizes.sort_by(|a, b| b.1.cmp(&a.1));
     let largest_files = file_sizes.into_iter().take(10).collect();
-    
+
     // Build folder tree starting from root
-    let root = build_folder_tree(path, &dir_sizes, &dir_file_counts, &dir_files, total_size, max_depth)?;
-    
+    let root = build_folder_tree(
+        path,
+        &dir_sizes,
+        &dir_file_counts,
+        &dir_files,
+        total_size,
+        max_depth,
+    )?;
+
     Ok(DiskInsights {
         root,
         total_size,
@@ -158,30 +168,30 @@ fn build_folder_tree(
         .and_then(|n| n.to_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| path.display().to_string());
-    
+
     // Get children directories first
     let mut children = Vec::new();
-    
+
     if max_depth > 0 {
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
                 let child_path = entry.path();
-                
+
                 // Skip if not a directory
                 if !child_path.is_dir() {
                     continue;
                 }
-                
+
                 // Skip symlinks and reparse points
                 if utils::should_skip_entry(&child_path) {
                     continue;
                 }
-                
+
                 // Skip system directories
                 if utils::is_system_path(&child_path) {
                     continue;
                 }
-                
+
                 // Include ALL directories (even if they have no direct files)
                 // Build the tree recursively - this will calculate sizes from subdirectories
                 // We'll pass the current directory's size as parent_total after calculating it
@@ -201,11 +211,11 @@ fn build_folder_tree(
             }
         }
     }
-    
+
     // Calculate size: dir_sizes already includes files in this directory AND all subdirectories
     // (because we add file sizes to all ancestor directories during scanning)
     let mut size = *dir_sizes.get(&path.to_path_buf()).unwrap_or(&0);
-    
+
     // If size is 0 but we have children, sum their sizes (handles edge case where
     // a folder only has subdirectories but wasn't in dir_sizes)
     if size == 0 && !children.is_empty() {
@@ -216,20 +226,20 @@ fn build_folder_tree(
             size = children_size;
         }
     }
-    
+
     // Calculate file count: dir_file_counts already includes files in this directory AND all subdirectories
     // (because we add file counts to all ancestor directories during scanning, just like sizes)
     let file_count = *dir_file_counts.get(&path.to_path_buf()).unwrap_or(&0);
-    
+
     let percentage = if parent_total > 0 {
         (size as f64 / parent_total as f64) * 100.0
     } else {
         100.0
     };
-    
+
     // Sort children by size descending
     children.sort_by(|a, b| b.size.cmp(&a.size));
-    
+
     // Recalculate children's percentages now that we know the current directory's size
     // (they were calculated with a placeholder parent_total)
     if size > 0 {
@@ -237,26 +247,29 @@ fn build_folder_tree(
             child.percentage = (child.size as f64 / size as f64) * 100.0;
         }
     }
-    
+
     // Collect files directly in this directory
     let files: Vec<FileInfo> = dir_files
         .get(&path.to_path_buf())
         .map(|file_list| {
-            file_list.iter().map(|(file_path, file_size)| {
-                let name = file_path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| file_path.display().to_string());
-                FileInfo {
-                    path: file_path.clone(),
-                    name,
-                    size: *file_size,
-                }
-            }).collect()
+            file_list
+                .iter()
+                .map(|(file_path, file_size)| {
+                    let name = file_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| file_path.display().to_string());
+                    FileInfo {
+                        path: file_path.clone(),
+                        name,
+                        size: *file_size,
+                    }
+                })
+                .collect()
         })
         .unwrap_or_default();
-    
+
     Ok(FolderNode {
         path: path.to_path_buf(),
         name,
@@ -285,10 +298,11 @@ pub fn sort_children(node: &mut FolderNode, sort_by: SortBy) {
             node.children.sort_by(|a, b| a.name.cmp(&b.name));
         }
         SortBy::Files => {
-            node.children.sort_by(|a, b| b.file_count.cmp(&a.file_count));
+            node.children
+                .sort_by(|a, b| b.file_count.cmp(&a.file_count));
         }
     }
-    
+
     // Recursively sort children
     for child in &mut node.children {
         sort_children(child, sort_by);
@@ -300,24 +314,24 @@ pub fn find_folder_by_path<'a>(node: &'a FolderNode, target_path: &Path) -> Opti
     if node.path == target_path {
         return Some(node);
     }
-    
+
     for child in &node.children {
         if let Some(found) = find_folder_by_path(child, target_path) {
             return Some(found);
         }
     }
-    
+
     None
 }
 
 /// Get breadcrumb path from root to target
 pub fn get_breadcrumb(root: &FolderNode, target: &Path) -> Vec<String> {
     let mut breadcrumb = Vec::new();
-    
+
     // Build path components
     let mut current = target;
     let root_path = &root.path;
-    
+
     // Collect path components from target back to root
     let mut components = Vec::new();
     while let Some(parent) = current.parent() {
@@ -329,10 +343,10 @@ pub fn get_breadcrumb(root: &FolderNode, target: &Path) -> Vec<String> {
         }
         current = parent;
     }
-    
+
     // Reverse to get root -> target order
     components.reverse();
     breadcrumb.extend(components);
-    
+
     breadcrumb
 }

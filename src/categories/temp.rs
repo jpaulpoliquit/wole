@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 const MAX_RESULTS: usize = 500;
 
 /// Scan for temporary files older than 1 day
-/// 
+///
 /// Checks %TEMP% and %LOCALAPPDATA%\Temp directories
 /// Optimizations:
 /// - Limits depth to 3 levels (deep temp files are usually system files)
@@ -21,17 +21,22 @@ const MAX_RESULTS: usize = 500;
 /// - Limits to top 500 results
 pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
-    
+
     let cutoff = Utc::now() - Duration::days(1);
-    
+
     // Collect files with sizes for sorting
     let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
-    
+
     // %TEMP% directory
     if let Ok(temp_dir) = env::var("TEMP") {
-        scan_temp_dir(&PathBuf::from(&temp_dir), &cutoff, &mut files_with_sizes, config);
+        scan_temp_dir(
+            &PathBuf::from(&temp_dir),
+            &cutoff,
+            &mut files_with_sizes,
+            config,
+        );
     }
-    
+
     // %LOCALAPPDATA%\Temp
     if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
         let local_temp = PathBuf::from(&local_appdata).join("Temp");
@@ -39,20 +44,20 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
             scan_temp_dir(&local_temp, &cutoff, &mut files_with_sizes, config);
         }
     }
-    
+
     // Sort by size descending
     files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
-    
+
     // Limit results
     files_with_sizes.truncate(MAX_RESULTS);
-    
+
     // Build result
     for (path, size) in files_with_sizes {
         result.items += 1;
         result.size_bytes += size;
         result.paths.push(path);
     }
-    
+
     Ok(result)
 }
 
@@ -150,12 +155,12 @@ fn scan_temp_dir(
             Ok(e) => e,
             Err(_) => continue,
         };
-        
+
         let metadata = match entry.metadata() {
             Ok(m) if m.is_file() => m,
             _ => continue,
         };
-        
+
         if let Ok(modified) = metadata.modified() {
             let modified_dt: chrono::DateTime<Utc> = modified.into();
             if modified_dt < *cutoff {

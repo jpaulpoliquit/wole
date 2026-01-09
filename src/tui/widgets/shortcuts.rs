@@ -1,12 +1,12 @@
 //! Shortcuts bar widget
 
+use crate::tui::theme::Styles;
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
-use crate::tui::theme::Styles;
 
 /// Render shortcuts bar at the bottom of the screen
 pub fn render_shortcuts(f: &mut Frame, area: Rect, shortcuts: &[(&str, &str)]) {
@@ -16,34 +16,31 @@ pub fn render_shortcuts(f: &mut Frame, area: Rect, shortcuts: &[(&str, &str)]) {
 
     // Calculate available width (accounting for padding)
     let available_width = area.width.saturating_sub(2);
-    
+
     // Build spans and check if they fit
     let mut spans: Vec<Span> = vec![];
     let mut current_width = 0;
-    
+
     for (i, (key, desc)) in shortcuts.iter().enumerate() {
         let separator = if i > 0 { " • " } else { "" };
         let key_text = format!("[{}]", key);
         let desc_text = format!(" {}", desc);
         let item_text = format!("{}{}{}", separator, key_text, desc_text);
         let item_width = item_text.len() as u16;
-        
+
         // Check if adding this item would exceed width
         if i > 0 && current_width + item_width > available_width {
             // Add ellipsis and break
             spans.push(Span::styled(" ...", Styles::secondary()));
             break;
         }
-        
+
         if i > 0 {
             spans.push(Span::styled(separator, Styles::secondary()));
         }
-        spans.push(Span::styled(
-            key_text,
-            Styles::emphasis(),
-        ));
+        spans.push(Span::styled(key_text, Styles::emphasis()));
         spans.push(Span::styled(desc_text, Styles::secondary()));
-        
+
         current_width += item_width;
     }
 
@@ -63,7 +60,10 @@ pub fn render_shortcuts(f: &mut Frame, area: Rect, shortcuts: &[(&str, &str)]) {
 }
 
 /// Get shortcuts for a screen type
-pub fn get_shortcuts(screen: &crate::tui::state::Screen, app_state: Option<&crate::tui::state::AppState>) -> Vec<(&'static str, &'static str)> {
+pub fn get_shortcuts(
+    screen: &crate::tui::state::Screen,
+    app_state: Option<&crate::tui::state::AppState>,
+) -> Vec<(&'static str, &'static str)> {
     match screen {
         crate::tui::state::Screen::Dashboard => vec![
             ("Tab", "Switch Panel"),
@@ -82,9 +82,7 @@ pub fn get_shortcuts(screen: &crate::tui::state::Screen, app_state: Option<&crat
             ("O", "Open File"),
             ("Esc", "Back"),
         ],
-        crate::tui::state::Screen::Scanning { .. } => vec![
-            ("Esc", "Cancel"),
-        ],
+        crate::tui::state::Screen::Scanning { .. } => vec![("Esc", "Cancel")],
         crate::tui::state::Screen::Results => {
             if app_state.map(|s| s.search_mode).unwrap_or(false) {
                 vec![
@@ -93,7 +91,10 @@ pub fn get_shortcuts(screen: &crate::tui::state::Screen, app_state: Option<&crat
                     ("Esc", "Cancel"),
                     ("↑↓", "Navigate"),
                 ]
-            } else if app_state.map(|s| !s.search_query.is_empty()).unwrap_or(false) {
+            } else if app_state
+                .map(|s| !s.search_query.is_empty())
+                .unwrap_or(false)
+            {
                 vec![
                     ("/", "Search"),
                     ("Esc", "Clear Filter"),
@@ -118,12 +119,10 @@ pub fn get_shortcuts(screen: &crate::tui::state::Screen, app_state: Option<&crat
                     ("Q", "Quit"),
                 ]
             }
-        },
-        crate::tui::state::Screen::Preview { .. } => vec![
-            ("Esc", "Back"),
-            ("D", "Delete"),
-            ("E", "Exclude"),
-        ],
+        }
+        crate::tui::state::Screen::Preview { .. } => {
+            vec![("Esc", "Back"), ("D", "Delete"), ("E", "Exclude")]
+        }
         crate::tui::state::Screen::Confirm { .. } => vec![
             ("↑↓", "Navigate"),
             ("Space", "Toggle"),
@@ -138,21 +137,14 @@ pub fn get_shortcuts(screen: &crate::tui::state::Screen, app_state: Option<&crat
             let has_remaining = app_state
                 .map(|state| !state.all_items.is_empty())
                 .unwrap_or(false);
-            
+
             if has_remaining {
-                vec![
-                    ("Esc/B", "Back to Results"),
-                    ("Any Key", "Dashboard"),
-                ]
+                vec![("Esc/B", "Back to Results"), ("Any Key", "Dashboard")]
             } else {
-                vec![
-                    ("Any Key", "Dashboard"),
-                ]
+                vec![("Any Key", "Dashboard")]
             }
-        },
-        crate::tui::state::Screen::Restore { .. } => vec![
-            ("Esc/B/Q", "Back to Dashboard"),
-        ],
+        }
+        crate::tui::state::Screen::Restore { .. } => vec![("Esc/B/Q", "Back to Dashboard")],
         crate::tui::state::Screen::DiskInsights { .. } => vec![
             ("↑↓", "Navigate"),
             ("Enter", "Drill In"),

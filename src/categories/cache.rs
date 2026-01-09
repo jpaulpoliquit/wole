@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::output::CategoryResult;
-use crate::utils;
 use crate::scan_events::ScanProgressEvent;
+use crate::utils;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -12,14 +12,32 @@ use std::sync::mpsc::Sender;
 const CACHE_LOCATIONS: &[(&str, CacheLocation)] = &[
     ("npm", CacheLocation::LocalAppData("npm-cache")),
     ("pip", CacheLocation::LocalAppDataNested(&["pip", "cache"])),
-    ("yarn", CacheLocation::LocalAppDataNested(&["Yarn", "Cache"])),
+    (
+        "yarn",
+        CacheLocation::LocalAppDataNested(&["Yarn", "Cache"]),
+    ),
     ("pnpm", CacheLocation::LocalAppData("pnpm-cache")),
     ("pnpm-store", CacheLocation::LocalAppData("pnpm-store")),
-    ("NuGet", CacheLocation::LocalAppDataNested(&["NuGet", "v3-cache"])),
-    ("Cargo", CacheLocation::UserProfileNested(&[".cargo", "registry"])),
-    ("Go", CacheLocation::UserProfileNested(&["go", "pkg", "mod", "cache"])),
-    ("Maven", CacheLocation::UserProfileNested(&[".m2", "repository"])),
-    ("Gradle", CacheLocation::UserProfileNested(&[".gradle", "caches"])),
+    (
+        "NuGet",
+        CacheLocation::LocalAppDataNested(&["NuGet", "v3-cache"]),
+    ),
+    (
+        "Cargo",
+        CacheLocation::UserProfileNested(&[".cargo", "registry"]),
+    ),
+    (
+        "Go",
+        CacheLocation::UserProfileNested(&["go", "pkg", "mod", "cache"]),
+    ),
+    (
+        "Maven",
+        CacheLocation::UserProfileNested(&[".m2", "repository"]),
+    ),
+    (
+        "Gradle",
+        CacheLocation::UserProfileNested(&[".gradle", "caches"]),
+    ),
 ];
 
 enum CacheLocation {
@@ -27,7 +45,6 @@ enum CacheLocation {
     LocalAppDataNested(&'static [&'static str]),
     UserProfileNested(&'static [&'static str]),
 }
-
 
 /// Scan for package manager cache directories
 ///
@@ -172,7 +189,11 @@ pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Resul
 
 /// Clean (delete) a package cache directory by moving it to the Recycle Bin
 pub fn clean(path: &Path) -> Result<()> {
-    trash::delete(path)
-        .with_context(|| format!("Failed to delete package cache directory: {}", path.display()))?;
+    trash::delete(path).with_context(|| {
+        format!(
+            "Failed to delete package cache directory: {}",
+            path.display()
+        )
+    })?;
     Ok(())
 }

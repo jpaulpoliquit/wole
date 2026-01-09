@@ -1,15 +1,15 @@
 //! Table widget for displaying scan results
 
+use crate::tui::{
+    state::ResultItem,
+    theme::{category_style, Styles},
+};
 use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
-};
-use crate::tui::{
-    state::ResultItem,
-    theme::{Styles, category_style},
 };
 
 /// Render the results table
@@ -76,13 +76,9 @@ pub fn render_results_table(
         let global_idx = start_idx + idx_in_slice;
         let is_selected = selected.contains(&global_idx);
         let is_cursor = global_idx == cursor;
-        
+
         // Checkbox
-        let checkbox = if is_selected {
-            "[X]"
-        } else {
-            "[ ]"
-        };
+        let checkbox = if is_selected { "[X]" } else { "[ ]" };
         let checkbox_style = if is_selected {
             Styles::checked()
         } else {
@@ -102,7 +98,8 @@ pub fn render_results_table(
         let size_str = bytesize::to_string(item.size_bytes, true);
 
         // Age
-        let age_str = item.age_days
+        let age_str = item
+            .age_days
             .map(|d| format!("{}d", d))
             .unwrap_or_else(|| "--".to_string());
 
@@ -140,15 +137,15 @@ pub fn render_results_table(
             Cell::from(""),
         ]));
     }
-    
+
     let table = Table::new(
         rows,
         &[
-            Constraint::Length(3),  // Checkbox
+            Constraint::Length(3),      // Checkbox
             Constraint::Percentage(50), // Path
-            Constraint::Length(12),  // Size
-            Constraint::Length(8),   // Age
-            Constraint::Length(12),  // Type
+            Constraint::Length(12),     // Size
+            Constraint::Length(8),      // Age
+            Constraint::Length(12),     // Type
         ],
     )
     .block(

@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 // ============================================================================
 // Git Root Cache
 // ============================================================================
-// 
+//
 // Finding git roots requires walking up the directory tree, which is O(depth).
 // When scanning thousands of files, this becomes O(files × depth) = very slow.
-// 
+//
 // Solution: Cache git root lookups. For any directory, we cache whether it has
 // a git root and what that root is. This makes repeated lookups O(1).
 // ============================================================================
@@ -32,7 +32,7 @@ pub fn clear_cache() {
 }
 
 /// Find the git root directory with thread-local caching
-/// 
+///
 /// Uses a thread-local HashMap cache to avoid repeated directory traversal.
 /// This provides significant speedup when scanning many files in the same project.
 pub fn find_git_root_cached(path: &Path) -> Option<PathBuf> {
@@ -42,18 +42,18 @@ pub fn find_git_root_cached(path: &Path) -> Option<PathBuf> {
     } else {
         path
     };
-    
+
     // Normalize path for cache key (canonicalize if possible, otherwise use as-is)
     let cache_key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-    
+
     GIT_ROOT_CACHE.with(|cache| {
         let mut cache_ref = cache.borrow_mut();
-        
+
         // Check cache first
         if let Some(cached_result) = cache_ref.get(&cache_key) {
             return cached_result.clone();
         }
-        
+
         // Not in cache - compute and store
         let result = find_git_root(&cache_key);
         cache_ref.insert(cache_key, result.clone());
@@ -62,32 +62,32 @@ pub fn find_git_root_cached(path: &Path) -> Option<PathBuf> {
 }
 
 /// Find the git root directory by walking up from the given path
-/// 
+///
 /// Prefer find_git_root_cached() for performance in scan loops
-/// 
+///
 /// Limits traversal depth to prevent issues with extremely deep paths
 pub fn find_git_root(path: &Path) -> Option<PathBuf> {
     let mut current = path.to_path_buf();
     let mut depth = 0;
     const MAX_DEPTH: usize = 200; // Reasonable limit for directory depth
-    
+
     loop {
         let git_dir = current.join(".git");
         if git_dir.exists() {
             return Some(current);
         }
-        
+
         if !current.pop() {
             break;
         }
-        
+
         depth += 1;
         if depth > MAX_DEPTH {
             // Prevent infinite loops or extremely deep traversal
             break;
         }
     }
-    
+
     None
 }
 
@@ -110,53 +110,53 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
-    
+
     fn create_test_dir() -> TempDir {
         tempfile::tempdir().unwrap()
     }
-    
+
     #[test]
     #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_find_git_root_no_git() {
         let temp_dir = create_test_dir();
         assert_eq!(find_git_root(temp_dir.path()), None);
     }
-    
+
     #[test]
     #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_find_git_root_cached() {
         let temp_dir = create_test_dir();
         let git_dir = temp_dir.path().join(".git");
         fs::create_dir_all(&git_dir).unwrap();
-        
+
         // First call should find it
         let result1 = find_git_root_cached(temp_dir.path());
         assert_eq!(result1, Some(temp_dir.path().to_path_buf()));
-        
+
         // Second call should use cache
         let result2 = find_git_root_cached(temp_dir.path());
         assert_eq!(result2, Some(temp_dir.path().to_path_buf()));
     }
-    
+
     #[test]
     #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_clear_cache() {
         let temp_dir = create_test_dir();
         let git_dir = temp_dir.path().join(".git");
         fs::create_dir_all(&git_dir).unwrap();
-        
+
         // Populate cache
         find_git_root_cached(temp_dir.path());
-        
+
         // Clear cache
         clear_cache();
-        
+
         // Cache should be empty (but we can't directly test that)
         // The function should still work after clearing
         let result = find_git_root_cached(temp_dir.path());
         assert_eq!(result, Some(temp_dir.path().to_path_buf()));
     }
-    
+
     #[test]
     #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_is_dirty_no_repo() {

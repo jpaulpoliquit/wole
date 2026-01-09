@@ -46,7 +46,13 @@ impl DeletionRecord {
     }
 
     /// Create a new failed deletion record
-    pub fn failure(path: &Path, size_bytes: u64, category: &str, permanent: bool, error: &str) -> Self {
+    pub fn failure(
+        path: &Path,
+        size_bytes: u64,
+        category: &str,
+        permanent: bool,
+        error: &str,
+    ) -> Self {
         Self {
             timestamp: Utc::now(),
             path: path.display().to_string(),
@@ -100,12 +106,23 @@ impl DeletionLog {
 
     /// Add a successful deletion
     pub fn log_success(&mut self, path: &Path, size_bytes: u64, category: &str, permanent: bool) {
-        self.add_record(DeletionRecord::success(path, size_bytes, category, permanent));
+        self.add_record(DeletionRecord::success(
+            path, size_bytes, category, permanent,
+        ));
     }
 
     /// Add a failed deletion
-    pub fn log_failure(&mut self, path: &Path, size_bytes: u64, category: &str, permanent: bool, error: &str) {
-        self.add_record(DeletionRecord::failure(path, size_bytes, category, permanent, error));
+    pub fn log_failure(
+        &mut self,
+        path: &Path,
+        size_bytes: u64,
+        category: &str,
+        permanent: bool,
+        error: &str,
+    ) {
+        self.add_record(DeletionRecord::failure(
+            path, size_bytes, category, permanent, error,
+        ));
     }
 
     /// Save the log to the history directory
@@ -113,21 +130,21 @@ impl DeletionLog {
     /// Returns the path to the saved log file
     pub fn save(&self) -> Result<PathBuf> {
         let history_dir = get_history_dir()?;
-        
+
         // Create filename with timestamp
         let filename = format!(
             "cleanup_{}.json",
             self.session_start.format("%Y%m%d_%H%M%S")
         );
         let log_path = history_dir.join(filename);
-        
+
         // Serialize and write
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize deletion log")?;
-        
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize deletion log")?;
+
         fs::write(&log_path, json)
             .with_context(|| format!("Failed to write deletion log to {}", log_path.display()))?;
-        
+
         Ok(log_path)
     }
 
@@ -163,37 +180,42 @@ pub fn get_history_dir() -> Result<PathBuf> {
             .map(|h| PathBuf::from(h).join(".local").join("share"))
             .unwrap_or_else(|_| PathBuf::from("."))
     };
-    
+
     let history_dir = base_dir.join("sweeper").join("history");
-    
+
     // Create directory if it doesn't exist
     if !history_dir.exists() {
-        fs::create_dir_all(&history_dir)
-            .with_context(|| format!("Failed to create history directory: {}", history_dir.display()))?;
+        fs::create_dir_all(&history_dir).with_context(|| {
+            format!(
+                "Failed to create history directory: {}",
+                history_dir.display()
+            )
+        })?;
     }
-    
+
     Ok(history_dir)
 }
 
 /// List all history log files
 pub fn list_logs() -> Result<Vec<PathBuf>> {
     let history_dir = get_history_dir()?;
-    
+
     let mut logs: Vec<PathBuf> = fs::read_dir(&history_dir)
-        .with_context(|| format!("Failed to read history directory: {}", history_dir.display()))?
+        .with_context(|| {
+            format!(
+                "Failed to read history directory: {}",
+                history_dir.display()
+            )
+        })?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .map(|ext| ext == "json")
-                .unwrap_or(false)
-        })
+        .filter(|path| path.extension().map(|ext| ext == "json").unwrap_or(false))
         .collect();
-    
+
     // Sort by filename (which includes timestamp) in reverse order (newest first)
     logs.sort();
     logs.reverse();
-    
+
     Ok(logs)
 }
 
@@ -201,28 +223,23 @@ pub fn list_logs() -> Result<Vec<PathBuf>> {
 pub fn load_log(path: &Path) -> Result<DeletionLog> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read log file: {}", path.display()))?;
-    
+
     let log: DeletionLog = serde_json::from_str(&content)
         .with_context(|| format!("Failed to parse log file: {}", path.display()))?;
-    
+
     Ok(log)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::path::Path;
+    use tempfile::TempDir;
 
     #[test]
     fn test_deletion_record_success() {
-        let record = DeletionRecord::success(
-            Path::new("/test/file.txt"),
-            1024,
-            "cache",
-            false,
-        );
-        
+        let record = DeletionRecord::success(Path::new("/test/file.txt"), 1024, "cache", false);
+
         assert!(record.success);
         assert!(record.error.is_none());
         assert_eq!(record.size_bytes, 1024);
@@ -239,7 +256,7 @@ mod tests {
             true,
             "File is locked",
         );
-        
+
         assert!(!record.success);
         assert_eq!(record.error, Some("File is locked".to_string()));
         assert!(record.permanent);
@@ -248,7 +265,7 @@ mod tests {
     #[test]
     fn test_deletion_log_new() {
         let log = DeletionLog::new();
-        
+
         assert_eq!(log.records.len(), 0);
         assert_eq!(log.total_bytes_cleaned, 0);
         assert_eq!(log.total_items, 0);
@@ -259,7 +276,7 @@ mod tests {
     fn test_deletion_log_add_success() {
         let mut log = DeletionLog::new();
         log.log_success(Path::new("/test/file.txt"), 1024, "cache", false);
-        
+
         assert_eq!(log.records.len(), 1);
         assert_eq!(log.total_bytes_cleaned, 1024);
         assert_eq!(log.total_items, 1);
@@ -269,8 +286,14 @@ mod tests {
     #[test]
     fn test_deletion_log_add_failure() {
         let mut log = DeletionLog::new();
-        log.log_failure(Path::new("/test/file.txt"), 1024, "cache", false, "Permission denied");
-        
+        log.log_failure(
+            Path::new("/test/file.txt"),
+            1024,
+            "cache",
+            false,
+            "Permission denied",
+        );
+
         assert_eq!(log.records.len(), 1);
         assert_eq!(log.total_bytes_cleaned, 0);
         assert_eq!(log.total_items, 1);
@@ -283,7 +306,7 @@ mod tests {
         log.log_success(Path::new("/test/file1.txt"), 1000, "cache", false);
         log.log_success(Path::new("/test/file2.txt"), 2000, "temp", false);
         log.log_failure(Path::new("/test/locked.txt"), 500, "cache", false, "Locked");
-        
+
         assert_eq!(log.records.len(), 3);
         assert_eq!(log.total_bytes_cleaned, 3000);
         assert_eq!(log.total_items, 3);
@@ -295,7 +318,7 @@ mod tests {
         // This test just verifies the function works without panicking
         let result = get_history_dir();
         assert!(result.is_ok());
-        
+
         let dir = result.unwrap();
         // The directory should exist after calling get_history_dir
         assert!(dir.exists());
@@ -306,7 +329,7 @@ mod tests {
         let mut log = DeletionLog::new();
         log.log_success(Path::new("/test/file1.txt"), 1000, "cache", false);
         log.log_failure(Path::new("/test/file2.txt"), 500, "temp", false, "Error");
-        
+
         let summary = log.summary();
         assert!(summary.contains("1 items cleaned"));
         assert!(summary.contains("1000 bytes"));

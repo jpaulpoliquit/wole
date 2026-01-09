@@ -1,18 +1,18 @@
 //! Success screen after cleanup
 
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
 use crate::tui::{
     state::AppState,
     theme::Styles,
     widgets::{
-        shortcuts::{render_shortcuts, get_shortcuts},
         logo::{render_logo, render_tagline, LOGO_WITH_TAGLINE_HEIGHT},
+        shortcuts::{get_shortcuts, render_shortcuts},
     },
+};
+use ratatui::{
+    layout::{Constraint, Direction, Layout},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Frame,
 };
 
 /// Get available disk space on the system drive (Windows: C:\, Unix: /)
@@ -21,16 +21,16 @@ fn get_free_space() -> Option<u64> {
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
-        
+
         let path: Vec<u16> = OsStr::new("C:\\")
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        
+
         let mut free_bytes_available: u64 = 0;
         let mut total_bytes: u64 = 0;
         let mut total_free_bytes: u64 = 0;
-        
+
         unsafe {
             extern "system" {
                 fn GetDiskFreeSpaceExW(
@@ -40,21 +40,21 @@ fn get_free_space() -> Option<u64> {
                     lpTotalNumberOfFreeBytes: *mut u64,
                 ) -> i32;
             }
-            
+
             let result = GetDiskFreeSpaceExW(
                 path.as_ptr(),
                 &mut free_bytes_available,
                 &mut total_bytes,
                 &mut total_free_bytes,
             );
-            
+
             if result != 0 {
                 return Some(free_bytes_available);
             }
         }
         None
     }
-    
+
     #[cfg(not(windows))]
     {
         None // Simplified for now, could add statvfs for Unix
@@ -70,30 +70,42 @@ fn fun_comparison(bytes: u64) -> Option<String> {
     // - Photo: ~5 MB
     // - eBook: ~2 MB
     // - npm package: ~50 MB average
-    
+
     const MB: u64 = 1_000_000;
     const GB: u64 = 1_000_000_000;
-    
-    let game_size: u64 = 50 * GB;           // ~50 GB for AAA game
-    let node_modules_size: u64 = 500 * MB;  // ~500 MB average node_modules
-    let floppy_size: u64 = 1_440_000;       // 1.44 MB floppy disk
-    
+
+    let game_size: u64 = 50 * GB; // ~50 GB for AAA game
+    let node_modules_size: u64 = 500 * MB; // ~500 MB average node_modules
+    let floppy_size: u64 = 1_440_000; // 1.44 MB floppy disk
+
     if bytes >= 10 * GB {
         let count = bytes / game_size;
         let gb = bytes as f64 / GB as f64;
         if count >= 1 {
-            Some(format!("That's like ~{} AAA game installs (~{:.1} GB) worth of space!", count, gb))
+            Some(format!(
+                "That's like ~{} AAA game installs (~{:.1} GB) worth of space!",
+                count, gb
+            ))
         } else {
-            Some(format!("That's like a partial game install (~{:.1} GB) worth of space!", gb))
+            Some(format!(
+                "That's like a partial game install (~{:.1} GB) worth of space!",
+                gb
+            ))
         }
     } else if bytes >= 500 * MB {
         let count = bytes / node_modules_size;
         let gb = bytes as f64 / GB as f64;
-        Some(format!("That's like ~{} node_modules folders (~{:.1} GB) worth of space!", count, gb))
+        Some(format!(
+            "That's like ~{} node_modules folders (~{:.1} GB) worth of space!",
+            count, gb
+        ))
     } else if bytes >= 10 * MB {
         let count = bytes / floppy_size;
         let mb = bytes as f64 / MB as f64;
-        Some(format!("That's like ~{} floppy disks (~{:.0} MB) worth of space!", count, mb))
+        Some(format!(
+            "That's like ~{} floppy disks (~{:.0} MB) worth of space!",
+            count, mb
+        ))
     } else if bytes >= 1 * MB {
         Some(format!("Every megabyte counts!"))
     } else {
@@ -108,11 +120,11 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT),  // Logo + 2 blank lines + tagline
-            Constraint::Length(6),  // Success message
-            Constraint::Min(8),     // Stats
-            Constraint::Length(3),  // Continue message
-            Constraint::Length(3),  // Shortcuts
+            Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT), // Logo + 2 blank lines + tagline
+            Constraint::Length(6),                        // Success message
+            Constraint::Min(8),                           // Stats
+            Constraint::Length(3),                        // Continue message
+            Constraint::Length(3),                        // Shortcuts
         ])
         .split(area);
 
@@ -133,7 +145,7 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
             ]),
             Line::from(""),
         ];
-        
+
         // Show space freed and free space now
         if let Some(free) = free_space {
             success_lines.push(Line::from(vec![
@@ -149,21 +161,25 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
                 Span::styled(" of disk space", Styles::primary()),
             ]));
         }
-        
-        let success_paragraph = Paragraph::new(success_lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Styles::success()),
-            );
+
+        let success_paragraph = Paragraph::new(success_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Styles::success()),
+        );
         f.render_widget(success_paragraph, chunks[1]);
     }
 
     // Stats breakdown
-    if let crate::tui::state::Screen::Success { cleaned, cleaned_bytes, errors } = app_state.screen {
+    if let crate::tui::state::Screen::Success {
+        cleaned,
+        cleaned_bytes,
+        errors,
+    } = app_state.screen
+    {
         // Count categories that were processed
         let categories_processed = app_state.category_groups.len();
-        
+
         let mut stats_lines = vec![
             Line::from(""),
             Line::from(vec![
@@ -179,7 +195,7 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
                 Span::styled(bytesize::to_string(cleaned_bytes, true), Styles::emphasis()),
             ]),
         ];
-        
+
         // Add free space if available
         if let Some(free) = free_space {
             stats_lines.push(Line::from(vec![
@@ -187,7 +203,7 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
                 Span::styled(bytesize::to_string(free, true), Styles::emphasis()),
             ]));
         }
-        
+
         // Add errors line
         stats_lines.push(if errors > 0 {
             Line::from(vec![
@@ -200,55 +216,59 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
                 Span::styled("0", Styles::success()),
             ])
         });
-        
+
         stats_lines.push(Line::from(""));
-        
+
         // Add fun comparison if applicable
         if let Some(comparison) = fun_comparison(cleaned_bytes) {
-            stats_lines.push(Line::from(vec![
-                Span::styled(format!("    {}", comparison), Styles::emphasis()),
-            ]));
+            stats_lines.push(Line::from(vec![Span::styled(
+                format!("    {}", comparison),
+                Styles::emphasis(),
+            )]));
         } else {
-            stats_lines.push(Line::from(vec![
-                Span::styled("    Your system is now cleaner and faster!", Styles::secondary()),
-            ]));
+            stats_lines.push(Line::from(vec![Span::styled(
+                "    Your system is now cleaner and faster!",
+                Styles::secondary(),
+            )]));
         }
 
-        let stats = Paragraph::new(stats_lines)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Styles::border())
-                    .title("SUMMARY"),
-            );
+        let stats = Paragraph::new(stats_lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Styles::border())
+                .title("SUMMARY"),
+        );
         f.render_widget(stats, chunks[2]);
     }
 
     // Continue message - show navigation options
     let has_remaining_items = !app_state.all_items.is_empty();
     let message_text = if has_remaining_items {
-        vec![
-            Line::from(vec![
-                Span::styled("  Press ", Styles::secondary()),
-                Span::styled("[Esc] or [B]", Styles::emphasis()),
-                Span::styled(" to return to results, or any other key for dashboard", Styles::secondary()),
-            ]),
-        ]
+        vec![Line::from(vec![
+            Span::styled("  Press ", Styles::secondary()),
+            Span::styled("[Esc] or [B]", Styles::emphasis()),
+            Span::styled(
+                " to return to results, or any other key for dashboard",
+                Styles::secondary(),
+            ),
+        ])]
     } else {
-        vec![
-            Line::from(vec![
-                Span::styled("  Press any key to return to dashboard...", Styles::secondary()),
-            ]),
-        ]
+        vec![Line::from(vec![Span::styled(
+            "  Press any key to return to dashboard...",
+            Styles::secondary(),
+        )])]
     };
-    
-    let message = Paragraph::new(message_text)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Styles::border())
-                .title(if has_remaining_items { "NAVIGATION" } else { "CONTINUE" }),
-        );
+
+    let message = Paragraph::new(message_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Styles::border())
+            .title(if has_remaining_items {
+                "NAVIGATION"
+            } else {
+                "CONTINUE"
+            }),
+    );
     f.render_widget(message, chunks[3]);
 
     // Shortcuts

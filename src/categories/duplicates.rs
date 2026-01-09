@@ -36,11 +36,11 @@ fn extract_suffix_number(filename: &str) -> u32 {
 /// Check if a filename appears to be a duplicate (has common duplicate patterns)
 fn is_duplicate_filename(filename: &str) -> bool {
     // Check for patterns like " (1)", " - Copy", " - Copy (2)", etc.
-    filename.contains(" (") && filename.contains(")") ||
-    filename.contains(" - Copy") ||
-    filename.contains(" - copy") ||
-    filename.contains("_copy") ||
-    filename.contains("_Copy")
+    filename.contains(" (") && filename.contains(")")
+        || filename.contains(" - Copy")
+        || filename.contains(" - copy")
+        || filename.contains("_copy")
+        || filename.contains("_Copy")
 }
 
 /// Duplicate file group
@@ -67,19 +67,17 @@ impl DuplicatesResult {
             // Separate files into those with duplicate patterns and those without
             let mut originals: Vec<&PathBuf> = Vec::new();
             let mut duplicates: Vec<&PathBuf> = Vec::new();
-            
+
             for path in &group.paths {
-                let filename = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
-                
+                let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
                 if is_duplicate_filename(filename) {
                     duplicates.push(path);
                 } else {
                     originals.push(path);
                 }
             }
-            
+
             // Sort duplicates by suffix number (lower numbers first, to delete higher copies first)
             duplicates.sort_by(|a, b| {
                 let a_name = a.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -88,7 +86,7 @@ impl DuplicatesResult {
                 let b_num = extract_suffix_number(b_name);
                 a_num.cmp(&b_num)
             });
-            
+
             // If there are files with duplicate patterns, ONLY flag those as duplicates
             // (never flag files without patterns like "lto_meeting_isa.ogg")
             if !duplicates.is_empty() {
@@ -104,14 +102,14 @@ impl DuplicatesResult {
                     let b_name = b.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     a_name.cmp(b_name)
                 });
-                
+
                 // Add all but the first one
                 for path in originals.iter().skip(1) {
                     paths.push((*path).clone());
                 }
             }
         }
-        
+
         CategoryResult {
             items: paths.len(),
             size_bytes: self.total_wasted,
@@ -134,7 +132,7 @@ impl DuplicatesResult {
 ///
 /// # Arguments
 /// * `root` - Default scan path (used if config doesn't specify scan_paths)
-/// 
+///
 /// Note: This function uses default config. For custom configuration, use `scan_with_config`.
 pub fn scan(root: &Path) -> Result<DuplicatesResult> {
     let default_config = Config::default();
@@ -142,9 +140,13 @@ pub fn scan(root: &Path) -> Result<DuplicatesResult> {
 }
 
 /// Scan for duplicate files with configuration
-pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_config: &Config) -> Result<DuplicatesResult> {
+pub fn scan_with_config(
+    root: &Path,
+    config: Option<&DuplicatesConfig>,
+    global_config: &Config,
+) -> Result<DuplicatesResult> {
     let mut result = DuplicatesResult::default();
-    
+
     // Determine scan roots: use config paths if provided, otherwise use root argument
     let mut scan_roots: Vec<PathBuf> = if let Some(cfg) = config {
         if !cfg.scan_paths.is_empty() {
@@ -174,7 +176,7 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
             }
         }
     }
-    
+
     // Get config values for performance optimization
     let memmap_threshold = config
         .map(|c| c.memmap_threshold_bytes)
@@ -187,10 +189,10 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
     let size_groups: HashMap<u64, Vec<PathBuf>> = {
         use std::sync::Mutex;
         let groups: Mutex<HashMap<u64, Vec<PathBuf>>> = Mutex::new(HashMap::new());
-        
+
         // Clone config for thread-safe access (jwalk requires 'static)
         let config_arc = Arc::new(global_config.clone());
-        
+
         for dir in scan_roots {
             if !dir.exists() {
                 continue;
@@ -199,38 +201,51 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
             // Use jwalk for parallel directory traversal (2-4x faster than walkdir)
             const MAX_DEPTH: usize = 20;
             let config_clone = Arc::clone(&config_arc);
-            
+
             WalkDir::new(&dir)
                 .max_depth(MAX_DEPTH)
-                .follow_links(false)  // CRITICAL: Prevents infinite loops on Windows junctions/reparse points
-                .parallelism(jwalk::Parallelism::RayonDefaultPool { busy_timeout: std::time::Duration::from_secs(1) })
+                .follow_links(false) // CRITICAL: Prevents infinite loops on Windows junctions/reparse points
+                .parallelism(jwalk::Parallelism::RayonDefaultPool {
+                    busy_timeout: std::time::Duration::from_secs(1),
+                })
                 .process_read_dir(move |_depth, _path, _read_dir_state, children| {
                     // Filter out directories we don't want to descend into
                     children.retain(|entry| {
                         if let Ok(ref e) = entry {
                             let path = e.path();
-                            
+
                             // Skip symlinks and Windows reparse points (junctions, OneDrive placeholders)
                             // This prevents infinite loops on Windows systems with OneDrive folders
                             if utils::should_skip_entry(&path) {
                                 return false;
                             }
-                            
+
                             if e.file_type().is_dir() {
                                 // Skip system/build directories
                                 if let Some(name) = path.file_name() {
                                     let name_lower = name.to_string_lossy().to_lowercase();
-                                    if matches!(name_lower.as_str(),
-                                        "node_modules" | ".git" | ".hg" | ".svn" |
-                                        "target" | ".gradle" | "__pycache__" |
-                                        ".venv" | "venv" | ".next" | ".nuxt" |
-                                        "$recycle.bin" | "system volume information" |
-                                        "appdata" | "programdata"
+                                    if matches!(
+                                        name_lower.as_str(),
+                                        "node_modules"
+                                            | ".git"
+                                            | ".hg"
+                                            | ".svn"
+                                            | "target"
+                                            | ".gradle"
+                                            | "__pycache__"
+                                            | ".venv"
+                                            | "venv"
+                                            | ".next"
+                                            | ".nuxt"
+                                            | "$recycle.bin"
+                                            | "system volume information"
+                                            | "appdata"
+                                            | "programdata"
                                     ) {
                                         return false;
                                     }
                                 }
-                                
+
                                 // Check user exclusions
                                 if config_clone.is_excluded(&path) {
                                     return false;
@@ -244,7 +259,7 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
                 .filter_map(|e| e.ok())
                 .for_each(|entry| {
                     let path = entry.path();
-                    
+
                     // Only process files
                     if !entry.file_type().is_file() {
                         return;
@@ -265,14 +280,12 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
                         let size = metadata.len();
                         if size > 0 {
                             let mut groups = groups.lock().unwrap();
-                            groups.entry(size)
-                                .or_insert_with(Vec::new)
-                                .push(path);
+                            groups.entry(size).or_insert_with(Vec::new).push(path);
                         }
                     }
                 });
         }
-        
+
         groups.into_inner().unwrap()
     };
 
@@ -284,12 +297,13 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
         .into_iter()
         .filter(|(_, paths)| paths.len() >= 2)
         .collect();
-    
+
     // Parallelize partial hash computation
     let partial_hash_results: Vec<(String, PathBuf)> = paths_to_hash
         .par_iter()
         .flat_map(|(_size, paths)| {
-            paths.par_iter()
+            paths
+                .par_iter()
                 .filter_map(|path| {
                     compute_partial_hash(path, buffer_size)
                         .ok()
@@ -298,7 +312,7 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
                 .collect::<Vec<_>>()
         })
         .collect();
-    
+
     // Group by partial hash
     for (partial_hash, path) in partial_hash_results {
         partial_hash_groups
@@ -306,24 +320,25 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
             .or_insert_with(Vec::new)
             .push(path);
     }
-    
+
     // Step 3: For partial hash matches, compute full hash (PARALLELIZED)
     let mut full_hash_groups: HashMap<String, Vec<PathBuf>> = HashMap::new();
-    
+
     // Collect paths that need full hashing
     let paths_for_full_hash: Vec<Vec<PathBuf>> = partial_hash_groups
         .into_iter()
         .filter(|(_, paths)| paths.len() >= 2)
         .map(|(_, paths)| paths)
         .collect();
-    
+
     // Parallelize full hash computation
     let memmap_threshold_clone = memmap_threshold;
     let buffer_size_clone = buffer_size;
     let full_hash_results: Vec<(String, PathBuf)> = paths_for_full_hash
         .par_iter()
         .flat_map(|paths| {
-            paths.par_iter()
+            paths
+                .par_iter()
                 .filter_map(|path| {
                     compute_full_hash(path, memmap_threshold_clone, buffer_size_clone)
                         .ok()
@@ -332,7 +347,7 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
                 .collect::<Vec<_>>()
         })
         .collect();
-    
+
     // Group by full hash
     for (full_hash, path) in full_hash_results {
         full_hash_groups
@@ -340,109 +355,106 @@ pub fn scan_with_config(root: &Path, config: Option<&DuplicatesConfig>, global_c
             .or_insert_with(Vec::new)
             .push(path);
     }
-    
+
     // Build duplicate groups
     for (hash, paths) in full_hash_groups {
         // Only include groups with duplicates (2+ files)
         if paths.len() < 2 {
             continue;
         }
-        
+
         // Get file size (all files in group have same size)
-        let size = paths.first()
+        let size = paths
+            .first()
             .and_then(|p| std::fs::metadata(p).ok())
             .map(|m| m.len())
             .unwrap_or(0);
-        
+
         // Calculate wasted space: (n-1) * size (keep one copy)
         let wasted = (paths.len() - 1) as u64 * size;
-        
-        result.groups.push(DuplicateGroup {
-            hash,
-            size,
-            paths,
-        });
-        
+
+        result.groups.push(DuplicateGroup { hash, size, paths });
+
         result.total_wasted += wasted;
     }
-    
+
     // Sort groups by wasted space descending
     result.groups.sort_by(|a, b| {
         let wasted_a = (a.paths.len() - 1) as u64 * a.size;
         let wasted_b = (b.paths.len() - 1) as u64 * b.size;
         wasted_b.cmp(&wasted_a)
     });
-    
+
     // Limit to top groups
     result.groups.truncate(MAX_GROUPS);
-    
+
     Ok(result)
 }
 
-
-
 /// Compute partial hash (first 4KB) of a file
 fn compute_partial_hash(path: &Path, _buffer_size: usize) -> Result<String> {
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open file: {}", path.display()))?;
-    
+    let file =
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
+
     let mut reader = BufReader::new(file);
     let mut buffer = vec![0u8; PARTIAL_HASH_SIZE];
-    
-    let bytes_read = reader.read(&mut buffer)
+
+    let bytes_read = reader
+        .read(&mut buffer)
         .with_context(|| format!("Failed to read file: {}", path.display()))?;
-    
+
     buffer.truncate(bytes_read);
-    
+
     let mut hasher = Hasher::new();
     hasher.update(&buffer);
     let hash = hasher.finalize();
-    
+
     Ok(format!("{}", hash.to_hex()))
 }
 
 /// Compute full hash of a file
-/// 
+///
 /// Uses memory mapping for large files (faster on NVMe SSDs) and buffered reads for smaller files
 fn compute_full_hash(path: &Path, memmap_threshold: u64, buffer_size: usize) -> Result<String> {
     // Get file size to decide on read strategy
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("Failed to get metadata: {}", path.display()))?;
     let file_size = metadata.len();
-    
+
     // Use memory mapping for large files (typically faster on modern SSDs)
     if file_size >= memmap_threshold && file_size > 0 {
         return compute_full_hash_memmap(path, file_size);
     }
-    
+
     // Use buffered reads for smaller files (memory mapping overhead not worth it)
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open file: {}", path.display()))?;
-    
+    let file =
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
+
     let mut reader = BufReader::with_capacity(buffer_size, file);
     let mut hasher = Hasher::new();
     let mut buffer = vec![0u8; buffer_size];
-    
+
     loop {
-        let bytes_read = reader.read(&mut buffer)
+        let bytes_read = reader
+            .read(&mut buffer)
             .with_context(|| format!("Failed to read file: {}", path.display()))?;
-        
+
         if bytes_read == 0 {
             break;
         }
-        
+
         hasher.update(&buffer[..bytes_read]);
     }
-    
+
     let hash = hasher.finalize();
     Ok(format!("{}", hash.to_hex()))
 }
 
 /// Compute full hash using memory mapping (faster for large files)
 fn compute_full_hash_memmap(path: &Path, _file_size: u64) -> Result<String> {
-    let file = File::open(path)
-        .with_context(|| format!("Failed to open file: {}", path.display()))?;
-    
+    let file =
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
+
     // Safety: We're only reading the file, not modifying it
     // The file is opened read-only and we're computing a hash
     let mmap = unsafe {
@@ -450,14 +462,13 @@ fn compute_full_hash_memmap(path: &Path, _file_size: u64) -> Result<String> {
             .map(&file)
             .with_context(|| format!("Failed to memory map file: {}", path.display()))?
     };
-    
+
     let mut hasher = Hasher::new();
     hasher.update(&mmap[..]);
     let hash = hasher.finalize();
-    
+
     Ok(format!("{}", hash.to_hex()))
 }
-
 
 /// Clean (delete) duplicate files by moving them to the Recycle Bin
 /// Keeps the first file in each group, deletes the rest

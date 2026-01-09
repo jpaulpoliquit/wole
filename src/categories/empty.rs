@@ -2,27 +2,27 @@ use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
 use anyhow::{Context, Result};
-use trash;
 use std::env;
 use std::path::{Path, PathBuf};
+use trash;
 use walkdir::WalkDir;
 
 /// Scan for empty folders in user directories
-/// 
+///
 /// An empty folder is one that contains no files (recursively).
 /// Folders that only contain other empty folders are also considered empty.
 pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
-    
+
     // Get user directories to scan
     let user_dirs = get_user_directories()?;
-    
+
     for dir in user_dirs {
         if !dir.exists() {
             continue;
         }
-        
+
         // Walk directories, checking each one
         // Limit depth to prevent stack overflow, especially on Windows with smaller stack size
         // Use a very conservative limit for Windows test threads (2MB stack)
@@ -36,13 +36,13 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
                 if should_skip_entry(e) {
                     return false;
                 }
-                
+
                 // 2. Check user config exclusions IMMEDIATELY (prevents traversal)
                 // Only check directories - files don't need exclusion checks during traversal
                 if e.file_type().is_dir() && config.is_excluded(e.path()) {
                     return false;
                 }
-                
+
                 true
             })
         {
@@ -50,19 +50,19 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
                 Ok(e) => e,
                 Err(_) => continue,
             };
-            
+
             let path = entry.path();
-            
+
             // Only check directories
             if !path.is_dir() {
                 continue;
             }
-            
+
             // Skip if it's a system path
             if utils::is_system_path(path) {
                 continue;
             }
-            
+
             // Check if directory is empty
             if is_dir_empty(path)? {
                 result.items += 1;
@@ -72,7 +72,7 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
             }
         }
     }
-    
+
     result.paths = paths;
     Ok(result)
 }
@@ -80,7 +80,7 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
 /// Get user directories to scan
 fn get_user_directories() -> Result<Vec<PathBuf>> {
     let mut dirs = Vec::new();
-    
+
     if let Ok(user_profile) = env::var("USERPROFILE") {
         let profile_path = PathBuf::from(&user_profile);
         dirs.push(profile_path.join("Downloads"));
@@ -90,22 +90,22 @@ fn get_user_directories() -> Result<Vec<PathBuf>> {
         dirs.push(profile_path.join("Videos"));
         dirs.push(profile_path.join("Music"));
     }
-    
+
     Ok(dirs)
 }
 
 /// Check if a directory is empty (contains no files, recursively)
-/// 
+///
 /// Uses a limited depth walk to avoid stack overflow on deep directory structures.
 /// This is called for each directory found during the main scan, so we keep the depth
 /// limit conservative to prevent excessive recursion.
 fn is_dir_empty(path: &Path) -> Result<bool> {
     let mut has_files = false;
-    
+
     // Use a very conservative depth limit since this is called for every directory
     // in the main scan, creating nested recursion
     const MAX_CHECK_DEPTH: usize = 5;
-    
+
     for entry in WalkDir::new(path)
         .max_depth(MAX_CHECK_DEPTH)
         .follow_links(false)
@@ -129,7 +129,7 @@ fn is_dir_empty(path: &Path) -> Result<bool> {
             }
         }
     }
-    
+
     Ok(!has_files)
 }
 
@@ -143,23 +143,34 @@ fn should_skip_entry(entry: &walkdir::DirEntry) -> bool {
     if utils::should_skip_entry(entry.path()) {
         return true;
     }
-    
+
     if let Some(name) = entry.file_name().to_str() {
         // Skip system directories
         if utils::is_system_path(entry.path()) {
             return true;
         }
-        
+
         // Skip known build/cache directories (they're handled by other categories)
-        return matches!(name.to_lowercase().as_str(),
-            "node_modules" | ".git" | ".hg" | ".svn" |
-            "target" | ".gradle" | "__pycache__" |
-            ".venv" | "venv" | ".next" | ".nuxt" |
-            "$recycle.bin" | "system volume information" |
-            "appdata" | "programdata"
+        return matches!(
+            name.to_lowercase().as_str(),
+            "node_modules"
+                | ".git"
+                | ".hg"
+                | ".svn"
+                | "target"
+                | ".gradle"
+                | "__pycache__"
+                | ".venv"
+                | "venv"
+                | ".next"
+                | ".nuxt"
+                | "$recycle.bin"
+                | "system volume information"
+                | "appdata"
+                | "programdata"
         );
     }
-    
+
     false
 }
 
