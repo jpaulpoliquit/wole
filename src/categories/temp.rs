@@ -1,8 +1,11 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
+use crate::scan_events::ScanProgressEvent;
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use walkdir::WalkDir;
 
 /// Maximum number of results to return
@@ -13,9 +16,10 @@ const MAX_RESULTS: usize = 500;
 /// Checks %TEMP% and %LOCALAPPDATA%\Temp directories
 /// Optimizations:
 /// - Limits depth to 3 levels (deep temp files are usually system files)
+/// - Checks config exclusions during traversal (prevents walking excluded trees)
 /// - Sorts by size descending
 /// - Limits to top 500 results
-pub fn scan(_root: &Path) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     
     let cutoff = Utc::now() - Duration::days(1);
@@ -25,14 +29,14 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
     
     // %TEMP% directory
     if let Ok(temp_dir) = env::var("TEMP") {
-        scan_temp_dir(&PathBuf::from(&temp_dir), &cutoff, &mut files_with_sizes);
+        scan_temp_dir(&PathBuf::from(&temp_dir), &cutoff, &mut files_with_sizes, config);
     }
     
     // %LOCALAPPDATA%\Temp
     if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
         let local_temp = PathBuf::from(&local_appdata).join("Temp");
         if local_temp.exists() {
-            scan_temp_dir(&local_temp, &cutoff, &mut files_with_sizes);
+            scan_temp_dir(&local_temp, &cutoff, &mut files_with_sizes, config);
         }
     }
     
@@ -52,15 +56,95 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
     Ok(result)
 }
 
+/// Scan with real-time progress events (for TUI).
+pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Result<CategoryResult> {
+    const CATEGORY: &str = "Temp";
+    let cutoff = Utc::now() - Duration::days(1);
+
+    let mut result = CategoryResult::default();
+    let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
+
+    // Build a list of temp roots to scan.
+    let mut temp_roots: Vec<PathBuf> = Vec::new();
+    if let Ok(temp_dir) = env::var("TEMP") {
+        temp_roots.push(PathBuf::from(&temp_dir));
+    }
+    if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
+        let local_temp = PathBuf::from(&local_appdata).join("Temp");
+        temp_roots.push(local_temp);
+    }
+    // Deduplicate.
+    temp_roots.sort();
+    temp_roots.dedup();
+
+    let total = temp_roots.len() as u64;
+    let _ = tx.send(ScanProgressEvent::CategoryStarted {
+        category: CATEGORY.to_string(),
+        total_units: Some(total.max(1)),
+        current_path: None,
+    });
+
+    if temp_roots.is_empty() {
+        let _ = tx.send(ScanProgressEvent::CategoryFinished {
+            category: CATEGORY.to_string(),
+            items: 0,
+            size_bytes: 0,
+        });
+        return Ok(result);
+    }
+
+    // Note: scan_with_progress doesn't have access to config, so we use default
+    // This is acceptable since temp directories are typically not excluded
+    let default_config = Config::default();
+    for (idx, root) in temp_roots.iter().enumerate() {
+        if root.exists() {
+            scan_temp_dir(root, &cutoff, &mut files_with_sizes, &default_config);
+        }
+        let _ = tx.send(ScanProgressEvent::CategoryProgress {
+            category: CATEGORY.to_string(),
+            completed_units: (idx + 1) as u64,
+            total_units: Some(total),
+            current_path: Some(root.clone()),
+        });
+    }
+
+    // Sort by size descending
+    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.truncate(MAX_RESULTS);
+
+    for (path, size) in files_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = tx.send(ScanProgressEvent::CategoryFinished {
+        category: CATEGORY.to_string(),
+        items: result.items,
+        size_bytes: result.size_bytes,
+    });
+
+    Ok(result)
+}
+
 fn scan_temp_dir(
     temp_path: &Path,
     cutoff: &chrono::DateTime<Utc>,
     files: &mut Vec<(PathBuf, u64)>,
+    config: &Config,
 ) {
     for entry in WalkDir::new(temp_path)
         .max_depth(3)
         .follow_links(false)
         .into_iter()
+        .filter_entry(|e| {
+            // Check user config exclusions IMMEDIATELY (prevents traversal)
+            // Only check directories - files don't need exclusion checks during traversal
+            if e.file_type().is_dir() && config.is_excluded(e.path()) {
+                return false;
+            }
+            true
+        })
     {
         let entry = match entry {
             Ok(e) => e,

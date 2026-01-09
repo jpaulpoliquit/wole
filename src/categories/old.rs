@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::git;
 use crate::output::CategoryResult;
 use crate::project;
@@ -6,7 +7,6 @@ use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use std::env;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 /// Maximum number of results to return
 const MAX_RESULTS: usize = 200;
@@ -19,10 +19,11 @@ const MIN_FILE_SIZE: u64 = 10 * 1024; // 10 KB
 /// Optimizations:
 /// - Uses cached git root lookups (100x faster)
 /// - Skips walking into node_modules, .git, etc. (early bailout)
+/// - Checks config exclusions during traversal (prevents walking excluded trees)
 /// - Skips files smaller than 10KB (reduces noise)
 /// - Sorts by size descending (biggest first)
 /// - Limits to top 200 results
-pub fn scan(_root: &Path, min_age_days: u64) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, min_age_days: u64, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     
     let cutoff = Utc::now() - Duration::days(min_age_days as i64);
@@ -34,7 +35,7 @@ pub fn scan(_root: &Path, min_age_days: u64) -> Result<CategoryResult> {
     let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
     
     for dir in user_dirs {
-        scan_directory(&dir, &cutoff, &mut files_with_sizes)?;
+        scan_directory(&dir, &cutoff, &mut files_with_sizes, config)?;
     }
     
     // Sort by size descending (biggest first)
@@ -70,98 +71,104 @@ fn get_user_directories() -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
+use std::sync::Arc;
+
 /// Scan a directory for old files with optimizations
 fn scan_directory(
     dir: &Path,
     cutoff: &chrono::DateTime<Utc>,
     files: &mut Vec<(PathBuf, u64)>,
+    config: &Config,
 ) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
     
-    // Limit depth to prevent stack overflow, especially on Windows with smaller stack size
+    use jwalk::WalkDir;
+    
     const MAX_DEPTH: usize = 20;
-    for entry in WalkDir::new(dir)
+    
+    // Clone config for thread-safe access
+    let config_arc = Arc::new(config.clone());
+    
+    let walk = WalkDir::new(dir)
         .max_depth(MAX_DEPTH)
         .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| !should_skip_entry(e))  // Early skip optimization
-    {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) if e.io_error().map(|io| io.kind() == std::io::ErrorKind::PermissionDenied).unwrap_or(false) => {
+        .parallelism(jwalk::Parallelism::RayonDefaultPool { busy_timeout: std::time::Duration::from_secs(1) })
+        .process_read_dir(move |_depth, _path, _state, children| {
+            let config = Arc::clone(&config_arc);
+            children.retain(|entry| {
+                if let Ok(ref e) = entry {
+                    let path = e.path();
+                    
+                    // 1. Skip symlinks/junctions
+                    if e.file_type().is_symlink() || utils::is_windows_reparse_point(&path) {
+                        return false;
+                    }
+
+                    if e.file_type().is_dir() {
+                        // 2. Skip based on name
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            let name_low = name.to_lowercase();
+                            if matches!(name_low.as_str(),
+                                "node_modules" | ".git" | ".hg" | ".svn" |
+                                "target" | ".gradle" | "__pycache__" |
+                                ".venv" | "venv" | ".next" | ".nuxt" |
+                                "windows" | "program files" | "program files (x86)" |
+                                "$recycle.bin" | "system volume information" |
+                                "appdata" | "programdata"
+                            ) {
+                                return false;
+                            }
+                        }
+
+                        // 3. Skip based on config
+                        if config.is_excluded(&path) {
+                            return false;
+                        }
+                    }
+                }
+                true
+            });
+        });
+
+    for entry in walk {
+        if let Ok(e) = entry {
+            let path = e.path();
+            
+            // We only care about files
+            if !e.file_type().is_file() {
                 continue;
             }
-            Err(_) => continue,
-        };
-        
-        let path = entry.path();
-        
-        // Check if it's a file
-        let metadata = match entry.metadata() {
-            Ok(m) if m.is_file() => m,
-            Ok(_) => continue,
-            Err(_) => continue,
-        };
-        
-        // Skip hidden files
-        if utils::is_hidden(path) {
-            continue;
-        }
-        
-        // Skip tiny files (reduces noise)
-        if metadata.len() < MIN_FILE_SIZE {
-            continue;
-        }
-        
-        // Check age threshold
-        let modified = match metadata.modified() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-        let modified_dt: chrono::DateTime<Utc> = modified.into();
-        if modified_dt >= *cutoff {
-            continue; // File is too new
-        }
-        
-        // Skip files in active projects (using CACHED git lookup)
-        if let Some(project_root) = git::find_git_root_cached(path) {
-            if let Ok(true) = project::is_project_active(&project_root, 14) {
-                continue; // Skip active projects
+
+            let metadata = match e.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            // Skip tiny files
+            if metadata.len() < MIN_FILE_SIZE {
+                continue;
+            }
+
+            // Check age
+            if let Ok(modified) = metadata.modified() {
+                let modified_dt: chrono::DateTime<Utc> = modified.into();
+                if modified_dt < *cutoff {
+                    // Skip files in active projects (using CACHED git lookup)
+                    if let Some(project_root) = git::find_git_root_cached(&path) {
+                        if let Ok(true) = project::is_project_active(&project_root, 14) {
+                            continue;
+                        }
+                    }
+                    
+                    files.push((path, metadata.len()));
+                }
             }
         }
-        
-        files.push((path.to_path_buf(), metadata.len()));
     }
     
     Ok(())
-}
-
-/// Check if we should skip walking into this directory
-fn should_skip_entry(entry: &walkdir::DirEntry) -> bool {
-    if !entry.file_type().is_dir() {
-        return false;
-    }
-
-    // Avoid Windows junction/reparse-point cycles (common in OneDrive folders).
-    if utils::is_windows_reparse_point(entry.path()) {
-        return true;
-    }
-    
-    if let Some(name) = entry.file_name().to_str() {
-        // Skip these directories entirely
-        return matches!(name.to_lowercase().as_str(),
-            "node_modules" | ".git" | ".hg" | ".svn" |
-            "target" | ".gradle" | "__pycache__" |
-            ".venv" | "venv" | ".next" | ".nuxt" |
-            "windows" | "program files" | "program files (x86)" |
-            "$recycle.bin" | "system volume information" |
-            "appdata" | "programdata"
-        );
-    }
-    
-    false
 }
 
 /// Clean (delete) an old file by moving it to the Recycle Bin

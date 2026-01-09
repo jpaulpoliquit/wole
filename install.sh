@@ -10,14 +10,29 @@ ARCH=$(uname -m)
 case "$ARCH" in
   x86_64) ARCH="x86_64" ;;
   aarch64|arm64) ARCH="arm64" ;;
+  i686|i386|x86) 
+    # Check if running on 64-bit system via PowerShell
+    if command -v powershell.exe >/dev/null 2>&1; then
+      IS_64BIT=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[System.Environment]::Is64BitOperatingSystem" 2>/dev/null | tr -d '\r\n')
+      if [ "$IS_64BIT" = "True" ]; then
+        # 32-bit process on 64-bit system - check actual architecture
+        PROC_ARCH=$(powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "[System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture" 2>/dev/null | tr -d '\r\n')
+        if [ "$PROC_ARCH" = "Arm64" ]; then
+          ARCH="arm64"
+        else
+          ARCH="x86_64"
+        fi
+      else
+        # True 32-bit system
+        ARCH="i686"
+      fi
+    else
+      # Fallback: assume 32-bit if we can't detect
+      ARCH="i686"
+    fi
+    ;;
   *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
-
-# Windows only has x86_64 builds for now
-if [ "$ARCH" != "x86_64" ]; then
-  echo "Warning: Only x86_64 builds are available. Using x86_64..."
-  ARCH="x86_64"
-fi
 
 ASSET="sweeper-windows-${ARCH}.zip"
 URL="https://github.com/${REPO}/releases/latest/download/${ASSET}"

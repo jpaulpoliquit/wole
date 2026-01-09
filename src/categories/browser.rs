@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
 use anyhow::{Context, Result};
@@ -9,6 +10,7 @@ use walkdir::WalkDir;
 /// Browser cache locations to scan
 /// Each tuple is (name, path_from_localappdata)
 const BROWSER_CACHES: &[(&str, &[&str])] = &[
+    // Chrome family
     // Chrome family
     ("Chrome", &["Google", "Chrome", "User Data", "Default", "Cache", "Cache_Data"]),
     ("Chrome (Beta)", &["Google", "Chrome Beta", "User Data", "Default", "Cache", "Cache_Data"]),
@@ -25,15 +27,33 @@ const BROWSER_CACHES: &[(&str, &[&str])] = &[
     // Arc
     ("Arc", &["The Browser Company", "Arc", "User Data", "Default", "Cache", "Cache_Data"]),
     // Comet
-    ("Comet", &["Comet", "Comet", "User Data", "Default", "Cache", "Cache_Data"]),
+    ("Perplexity", &["Perplexity", "Perplexity", "User Data", "Default", "Cache", "Cache_Data"]),
     // Atlast by OpenAI
     ("Atlas", &["OpenAI", "Atlast", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Vivaldi
+    ("Vivaldi", &["Vivaldi", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Firefox (profile handled separately)
+    // ("Firefox", profile-based, see scan impl)
+    // Chromium (unbranded)
+    ("Chromium", &["Chromium", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Sidekick
+    ("Sidekick", &["Redundant", "Sidekick", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Yandex Browser
+    ("Yandex", &["Yandex", "YandexBrowser", "User Data", "Default", "Cache"]),
+    // Avast Secure Browser
+    ("Avast Secure Browser", &["AVAST Software", "Browser", "User Data", "Default", "Cache", "Cache_Data"]),
+    // CCleaner Browser
+    ("CCleaner Browser", &["CCleaner", "CCleaner Browser", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Torch Browser
+    ("Torch", &["Torch", "User Data", "Default", "Cache", "Cache_Data"]),
+    // Epic Privacy Browser
+    ("Epic", &["Epic Privacy Browser", "User Data", "Default", "Cache", "Cache_Data"]),
 ];
 
 /// Scan for browser cache directories
 /// 
 /// Checks well-known Windows cache locations for Chrome, Edge, and Firefox.
-pub fn scan(_root: &Path) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
     
@@ -47,7 +67,7 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
                 cache_path = cache_path.join(subpath);
             }
             
-            if cache_path.exists() {
+            if cache_path.exists() && !config.is_excluded(&cache_path) {
                 let size = utils::calculate_dir_size(&cache_path);
                 if size > 0 {
                     result.items += 1;
@@ -73,7 +93,7 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
                 if path.is_dir() && path.file_name().and_then(|n| n.to_str()).map(|n| n.contains(".default")).unwrap_or(false) {
                     // Found a Firefox profile directory, check for cache2
                     let cache2_path = path.join("cache2");
-                    if cache2_path.exists() {
+                    if cache2_path.exists() && !config.is_excluded(&cache2_path) {
                         let size = utils::calculate_dir_size(&cache2_path);
                         if size > 0 {
                             result.items += 1;

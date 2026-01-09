@@ -15,17 +15,26 @@ use std::path::{Path, PathBuf};
 // a git root and what that root is. This makes repeated lookups O(1).
 // ============================================================================
 
-// REMOVED: Static cache causes stack overflow during initialization on Windows
-// Git root caching is disabled for now - slightly slower but stable
+// Thread-local cache to avoid static initialization issues
+// Uses thread_local! macro for per-thread caching without static initialization
+use std::cell::RefCell;
+use std::collections::HashMap;
 
-/// Clear the git root cache (no-op now that cache is disabled)
-pub fn clear_cache() {
-    // No-op: cache removed to fix stack overflow
+thread_local! {
+    static GIT_ROOT_CACHE: RefCell<HashMap<PathBuf, Option<PathBuf>>> = RefCell::new(HashMap::new());
 }
 
-/// Find the git root directory (cache disabled to avoid stack overflow)
+/// Clear the git root cache
+pub fn clear_cache() {
+    GIT_ROOT_CACHE.with(|cache| {
+        cache.borrow_mut().clear();
+    });
+}
+
+/// Find the git root directory with thread-local caching
 /// 
-/// Previously cached but cache removed due to Windows stack overflow issues
+/// Uses a thread-local HashMap cache to avoid repeated directory traversal.
+/// This provides significant speedup when scanning many files in the same project.
 pub fn find_git_root_cached(path: &Path) -> Option<PathBuf> {
     // Normalize to parent directory if path is a file
     let dir = if path.is_file() {
@@ -34,8 +43,22 @@ pub fn find_git_root_cached(path: &Path) -> Option<PathBuf> {
         path
     };
     
-    // Cache disabled - just call find_git_root directly
-    find_git_root(dir)
+    // Normalize path for cache key (canonicalize if possible, otherwise use as-is)
+    let cache_key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    
+    GIT_ROOT_CACHE.with(|cache| {
+        let mut cache_ref = cache.borrow_mut();
+        
+        // Check cache first
+        if let Some(cached_result) = cache_ref.get(&cache_key) {
+            return cached_result.clone();
+        }
+        
+        // Not in cache - compute and store
+        let result = find_git_root(&cache_key);
+        cache_ref.insert(cache_key, result.clone());
+        result
+    })
 }
 
 /// Find the git root directory by walking up from the given path

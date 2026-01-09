@@ -1,10 +1,13 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
+use crate::scan_events::ScanProgressEvent;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 
-/// Cache locations to scan
+/// Package manager cache locations to scan
 /// Each tuple is (name, path_from_localappdata_or_userprofile)
 const CACHE_LOCATIONS: &[(&str, CacheLocation)] = &[
     ("npm", CacheLocation::LocalAppData("npm-cache")),
@@ -25,18 +28,87 @@ enum CacheLocation {
     UserProfileNested(&'static [&'static str]),
 }
 
+
 /// Scan for package manager cache directories
 ///
 /// Checks well-known Windows cache locations for various package managers.
 /// Uses shared calculate_dir_size for consistent size calculation.
-pub fn scan(_root: &Path) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
-    let mut paths = Vec::new();
+    let mut candidates = Vec::new();
 
     let local_appdata = env::var("LOCALAPPDATA").ok().map(PathBuf::from);
     let userprofile = env::var("USERPROFILE").ok().map(PathBuf::from);
 
+    // 1. Collect candidate paths
     for (_name, location) in CACHE_LOCATIONS {
+        let cache_path = match location {
+            CacheLocation::LocalAppData(subpath) => local_appdata.as_ref().map(|p| p.join(subpath)),
+            CacheLocation::LocalAppDataNested(subpaths) => local_appdata.as_ref().map(|p| {
+                let mut path = p.clone();
+                for subpath in *subpaths {
+                    path = path.join(subpath);
+                }
+                path
+            }),
+            CacheLocation::UserProfileNested(subpaths) => userprofile.as_ref().map(|p| {
+                let mut path = p.clone();
+                for subpath in *subpaths {
+                    path = path.join(subpath);
+                }
+                path
+            }),
+        };
+
+        if let Some(cache_path) = cache_path {
+            if cache_path.exists() && !config.is_excluded(&cache_path) {
+                candidates.push(cache_path);
+            }
+        }
+    }
+
+    // 2. Calculate sizes sequentially (one parallel walk at a time)
+    let mut paths_with_sizes: Vec<(PathBuf, u64)> = candidates
+        .iter()
+        .map(|p| {
+            let size = utils::calculate_dir_size(p);
+            (p.clone(), size)
+        })
+        .filter(|(_, size)| *size > 0)
+        .collect();
+
+    // Sort by size descending
+    paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+
+    for (path, size) in paths_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    Ok(result)
+}
+
+/// Scan with real-time progress events (for TUI).
+/// Scan with real-time progress events (for TUI).
+pub fn scan_with_progress(_root: &Path, tx: &Sender<ScanProgressEvent>) -> Result<CategoryResult> {
+    const CATEGORY: &str = "Package cache";
+    let total = CACHE_LOCATIONS.len() as u64;
+
+    let mut result = CategoryResult::default();
+    let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
+
+    let local_appdata = env::var("LOCALAPPDATA").ok().map(PathBuf::from);
+    let userprofile = env::var("USERPROFILE").ok().map(PathBuf::from);
+
+    let _ = tx.send(ScanProgressEvent::CategoryStarted {
+        category: CATEGORY.to_string(),
+        total_units: Some(total),
+        current_path: None,
+    });
+
+    // Scan known package manager caches
+    for (idx, (_name, location)) in CACHE_LOCATIONS.iter().enumerate() {
         let cache_path = match location {
             CacheLocation::LocalAppData(subpath) => local_appdata.as_ref().map(|p| p.join(subpath)),
             CacheLocation::LocalAppDataNested(subpaths) => local_appdata.as_ref().map(|p| {
@@ -59,32 +131,48 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
             if cache_path.exists() {
                 let size = utils::calculate_dir_size(&cache_path);
                 if size > 0 {
-                    result.items += 1;
-                    result.size_bytes += size;
-                    paths.push(cache_path);
+                    files_with_sizes.push((cache_path.clone(), size));
                 }
             }
+
+            let _ = tx.send(ScanProgressEvent::CategoryProgress {
+                category: CATEGORY.to_string(),
+                completed_units: (idx + 1) as u64,
+                total_units: Some(total),
+                current_path: Some(cache_path),
+            });
+        } else {
+            let _ = tx.send(ScanProgressEvent::CategoryProgress {
+                category: CATEGORY.to_string(),
+                completed_units: (idx + 1) as u64,
+                total_units: Some(total),
+                current_path: None,
+            });
         }
     }
 
     // Sort by size descending
-    let mut paths_with_sizes: Vec<(PathBuf, u64)> = paths
-        .into_iter()
-        .map(|p| {
-            let size = utils::calculate_dir_size(&p);
-            (p, size)
-        })
-        .collect();
-    paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
 
-    result.paths = paths_with_sizes.into_iter().map(|(p, _)| p).collect();
+    // Build final result
+    for (path, size) in files_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = tx.send(ScanProgressEvent::CategoryFinished {
+        category: CATEGORY.to_string(),
+        items: result.items,
+        size_bytes: result.size_bytes,
+    });
 
     Ok(result)
 }
 
-/// Clean (delete) a cache directory by moving it to the Recycle Bin
+/// Clean (delete) a package cache directory by moving it to the Recycle Bin
 pub fn clean(path: &Path) -> Result<()> {
     trash::delete(path)
-        .with_context(|| format!("Failed to delete cache directory: {}", path.display()))?;
+        .with_context(|| format!("Failed to delete package cache directory: {}", path.display()))?;
     Ok(())
 }

@@ -83,9 +83,25 @@ jobs:
         run: cargo test --verbose
 
   build:
-    name: Build Windows Binary
+    name: Build Windows Binaries
     runs-on: windows-latest
     needs: [check, test]
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+          - i686-pc-windows-msvc
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x86_64
+            target_dir: x86_64-pc-windows-msvc
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+            target_dir: aarch64-pc-windows-msvc
+          - target: i686-pc-windows-msvc
+            arch: i686
+            target_dir: i686-pc-windows-msvc
     
     steps:
       - name: Checkout repository
@@ -95,6 +111,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: ${{ matrix.target }}
       
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -105,17 +122,18 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
             ${{ runner.os }}-cargo-
       
       - name: Build release binary
-        run: cargo build --release --verbose
+        run: cargo build --release --target ${{ matrix.target }} --verbose
         continue-on-error: false
       
       - name: Verify binary exists
         run: |
-          $binaryPath = "target\release\sweeper.exe"
+          $binaryPath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
           if (Test-Path $binaryPath) {
             Write-Host "Binary built successfully"
             $file = Get-Item $binaryPath
@@ -124,39 +142,104 @@ jobs:
             Write-Host "LastWriteTime: $($file.LastWriteTime)"
           } else {
             Write-Error "Binary not found at: $binaryPath"
-            Write-Host "Contents of target\release:"
-            if (Test-Path "target\release") {
-              Get-ChildItem "target\release" | Format-Table Name, Length, LastWriteTime
+            Write-Host "Contents of target\${{ matrix.target_dir }}\release:"
+            if (Test-Path "target\${{ matrix.target_dir }}\release") {
+              Get-ChildItem "target\${{ matrix.target_dir }}\release" | Format-Table Name, Length, LastWriteTime
             } else {
-              Write-Host "target\release directory does not exist"
+              Write-Host "target\${{ matrix.target_dir }}\release directory does not exist"
             }
+            exit 1
+          }
+      
+      - name: Test binary execution (x64 only)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        run: |
+          $binaryPath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
+          Write-Host "Testing binary execution..."
+          $output = & $binaryPath --help 2>&1
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
+            Write-Error "Binary failed to execute (exit code: $LASTEXITCODE)"
+            exit 1
+          }
+          Write-Host "Binary executed successfully"
+          Write-Host "Help output (first 10 lines):"
+          $output | Select-Object -First 10
+      
+      - name: Create release zip package
+        run: |
+          $zipName = "sweeper-windows-${{ matrix.arch }}.zip"
+          $zipPath = "target\${{ matrix.target_dir }}\release\$zipName"
+          $exePath = "target\${{ matrix.target_dir }}\release\sweeper.exe"
+          
+          # Create zip file with the executable
+          Compress-Archive -Path $exePath -DestinationPath $zipPath -Force
+          
+          Write-Host "Created zip package: $zipPath"
+          $zipFile = Get-Item $zipPath
+          Write-Host "Zip size: $([math]::Round($zipFile.Length / 1MB, 2)) MB"
+          
+          # Verify zip contents
+          Write-Host "Verifying zip contents..."
+          $testDir = Join-Path $env:TEMP "sweeper-zip-test"
+          Expand-Archive -Path $zipPath -DestinationPath $testDir -Force | Out-Null
+          $extractedExe = Join-Path $testDir "sweeper.exe"
+          if (Test-Path $extractedExe) {
+            Write-Host "✓ Zip contains sweeper.exe"
+            Remove-Item $testDir -Recurse -Force -ErrorAction SilentlyContinue
+          } else {
+            Write-Error "Zip verification failed: sweeper.exe not found in zip"
             exit 1
           }
       
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sweeper-windows-x64
-          path: target\release\sweeper.exe
+          name: sweeper-windows-${{ matrix.arch }}
+          path: |
+            target/${{ matrix.target_dir }}/release/sweeper.exe
+            target/${{ matrix.target_dir }}/release/sweeper-windows-${{ matrix.arch }}.zip
           retention-days: 7
+  
+  release:
+    name: Create Release
+    runs-on: windows-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
       
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: target\release\sweeper.exe
+          files: |
+            artifacts/sweeper-windows-x86_64/sweeper-windows-x86_64.zip
+            artifacts/sweeper-windows-arm64/sweeper-windows-arm64.zip
+            artifacts/sweeper-windows-i686/sweeper-windows-i686.zip
           name: Release ${{ github.ref_name }}
           body: |
             ## Changes
             See the [full changelog](https://github.com/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.sha }})
             
             ## Installation
-            Download `sweeper.exe` and add it to your PATH.
             
-            Or use the install script:
+            **PowerShell (Recommended):**
             ```powershell
             irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex
             ```
+            
+            **Manual:** Download the appropriate zip for your architecture:
+            - `sweeper-windows-x86_64.zip` - 64-bit Intel/AMD
+            - `sweeper-windows-arm64.zip` - ARM64 (Windows on ARM)
+            - `sweeper-windows-i686.zip` - 32-bit Intel/AMD
+            
+            Extract and add `sweeper.exe` to your PATH.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:

@@ -1,173 +1,96 @@
 # Sweep
 
-A Windows-first developer cleanup tool that safely removes build artifacts and caches from inactive projects.
+A Windows-first cleanup tool that safely removes unused files, caches, and system junk to free up disk space.
+
+[GitHub](https://github.com/jpaulpoliquit/sweeper)
+[License: MIT](LICENSE)
+[Rust](https://www.rust-lang.org/)
 
 ## Why Sweep?
 
-Existing tools (kondo, npkill, BleachBit) lack **project activity awareness**. Sweep only cleans artifacts from projects you're not actively working on.
+A comprehensive cleanup tool that handles caches, temp files, browser data, system files, duplicates, and more. The `--build` category is project-aware, only cleaning artifacts from inactive projects.
 
 ## Features
 
-- **Git-aware** — Skips projects with recent commits or uncommitted changes
-- **Multi-language** — Node, Rust, .NET, Python, Java
-- **Windows-native** — Handles NuGet, npm/yarn/pnpm caches, VS artifacts
-- **Safe by default** — Dry-run mode, Recycle Bin deletion, JSON manifests
+- General cleanup: Caches, temp files, browser data, system files, duplicates, empty folders
+- Project-aware build cleanup: Only cleans artifacts from inactive projects (14+ days old)
+- Git-aware: Skips projects with recent commits or uncommitted changes
+- Windows-native: Handles NuGet, npm/yarn/pnpm caches, VS artifacts, browser caches
+- Safe by default: Dry-run mode, Recycle Bin deletion, JSON output
+- Interactive TUI: Run `sweeper` with no args
+- Production-grade: Long path support, symlink protection, locked file detection
 
 ## Installation
 
-### Windows (PowerShell)
+**PowerShell:**
 
 ```powershell
-# Download and install from GitHub releases
 irm https://raw.githubusercontent.com/jpaulpoliquit/sweeper/main/install.ps1 | iex
 ```
 
-Or download `install.ps1` and run:
-```powershell
-.\install.ps1
-```
-
-### Windows (Batch)
-
-```cmd
-# Download install.bat and run
-install.bat
-```
-
-### Windows (Git Bash / MINGW64)
-
-```bash
-# Download install.sh and run
-./install.sh
-```
-
-### Manual Installation
-
-1. Download the latest release from [GitHub Releases](https://github.com/jpaulpoliquit/sweeper/releases)
-2. Extract `sweeper.exe` to a directory in your PATH (e.g., `%LOCALAPPDATA%\sweeper\bin`)
-3. Add that directory to your PATH environment variable
-
-## Building from Source
-
-### Prerequisites
-
-- [Rust](https://rustup.rs/) (latest stable)
-- Visual Studio Build Tools with "C++ build tools" workload (for Windows MSVC target)
-
-### Build Instructions
-
-**PowerShell (Recommended):**
-```powershell
-# Debug build
-.\build\build.ps1
-
-# Release build
-.\build\build.ps1 -Release
-```
-
-**Command Prompt:**
-```cmd
-cargo build
-cargo build --release
-```
-
-**Git Bash:**
-```bash
-# Use the build script (recommended - handles PATH automatically)
-./build/build.sh
-
-# Or manually fix PATH first, then build
-export PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "Git/usr/bin" | grep -v "Git/cmd" | grep -v "Git/mingw64/bin" | tr '\n' ':' | sed 's/:$//')
-unalias link 2>/dev/null || true
-cargo build
-```
-
-**⚠️ Important:** If you get `link: extra operand` errors in Git Bash, use PowerShell instead:
-```powershell
-.\build\build.ps1
-```
-
-**Note:** If you encounter linker errors in Git Bash (`link: extra operand`), use PowerShell or CMD instead. See [build/BUILD_TROUBLESHOOTING.md](build/BUILD_TROUBLESHOOTING.md) for details.
-
-### Build Output
-
-- Debug: `target\debug\sweeper.exe`
-- Release: `target\release\sweeper.exe`
+**Manual:** Download from [GitHub Releases](https://github.com/jpaulpoliquit/sweeper/releases) and add to PATH.
 
 ## Quick Start
 
 ```bash
-# Scan for reclaimable space
-sweeper scan --all
-
-# Scan specific categories
-sweeper scan --build --cache --temp
-
-# Preview what would be deleted
-sweeper scan --build --cache
-
-# Detailed analysis with file lists
-sweeper analyze --all
-
-# Clean inactive projects (with confirmation)
-sweeper clean --build --cache
-
-# Clean without confirmation
-sweeper clean --build --cache -y
-
-# Dry run (preview without deleting)
-sweeper clean --all --dry-run
-
-# Permanent delete (bypass Recycle Bin)
-sweeper clean --temp --permanent -y
-
-# Exclude specific paths
-sweeper scan --all --exclude "**/important-project/**"
+sweeper                          # Launch interactive TUI
+sweeper scan --all              # Preview what would be cleaned
+sweeper clean --cache --temp    # Clean caches and temp files
+sweeper clean --trash -y        # Empty Recycle Bin
 ```
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `scan` | Find cleanable files (safe, dry-run by default) |
-| `clean` | Delete files found by scan (with confirmation) |
-| `analyze` | Show detailed breakdown with file lists and statistics |
-| `config` | View or modify configuration settings |
+
+| Command   | Description                                            |
+| --------- | ------------------------------------------------------ |
+| `scan`    | Find cleanable files (safe, dry-run by default)        |
+| `clean`   | Delete files (requires confirmation, use `-y` to skip) |
+| `analyze` | Detailed breakdown with file lists                     |
+| `config`  | View/edit configuration                                |
+
 
 ## Categories
 
-| Flag | Targets |
-|------|---------|
-| `--build` | Build artifacts from inactive projects (`node_modules`, `target/`, `bin/obj`, `dist/`, `__pycache__`, etc.) |
-| `--cache` | npm/yarn/pnpm, NuGet, Cargo, pip caches |
-| `--temp` | Windows temp directories (files older than 1 day) |
-| `--trash` | Recycle Bin contents |
-| `--downloads` | Old files in Downloads folder (default: 30+ days) |
-| `--large` | Files over size threshold (default: 100MB) |
-| `--old` | Files not accessed in N days (default: 30+ days) |
+
+| Flag           | Description                                                                         |
+| -------------- | ----------------------------------------------------------------------------------- |
+| `--cache`      | Package manager caches (npm/yarn/pnpm, NuGet, Cargo, pip)                           |
+| `--temp`       | Windows temp files older than 1 day                                                 |
+| `--trash`      | Recycle Bin contents                                                                |
+| `--build`      | Build artifacts from inactive projects (`node_modules`, `target/`, `bin/obj`, etc.) |
+| `--browser`    | Browser caches (Chrome, Edge, Firefox, Brave, etc.)                                 |
+| `--system`     | Windows system caches (thumbnails, updates, icons)                                  |
+| `--downloads`  | Old files in Downloads (30+ days)                                                   |
+| `--large`      | Large files (100MB+)                                                                |
+| `--old`        | Files not accessed in 30+ days                                                      |
+| `--empty`      | Empty folders                                                                       |
+| `--duplicates` | Duplicate files                                                                     |
+
+
+**Note:** Only `--build` is project-aware. Other categories clean files system-wide.
 
 ## Options
 
-### Common Options
+**Common:**
 
-- `--all`, `-a` - Enable all scan categories at once
-- `--exclude <PATTERN>` - Exclude paths matching pattern (repeatable)
-- `--path <PATH>` - Root path to scan (default: home directory)
-- `--json` - Output results as JSON for scripting
-- `-v`, `-vv` - Increase verbosity
-- `-q` - Quiet mode (errors only)
+- `--all` - Enable all categories
+- `--exclude <PATTERN>` - Exclude paths (repeatable)
+- `--json` - JSON output for scripting
+- `-v`, `-vv` - Verbose output
+- `-q` - Quiet mode
 
-### Scan Options
+**Scan:**
 
-- `--project-age <DAYS>` - Project inactivity threshold (default: 14 days)
-- `--min-age <DAYS>` - Minimum file age for downloads/old (default: 30 days)
-- `--min-size <SIZE>` - Minimum file size for large files (default: 100MB)
+- `--project-age <DAYS>` - Project inactivity threshold for `--build` (default: 14)
+- `--min-age <DAYS>` - Minimum file age for `--downloads` and `--old` (default: 30)
+- `--min-size <SIZE>` - Minimum file size for `--large` (default: 100MB)
 
-### Clean Options
+**Clean:**
 
-- `-y`, `--yes` - Skip confirmation prompt
-- `--permanent` - Permanently delete (bypass Recycle Bin)
-- `--dry-run` - Preview only, don't delete
+- `-y`, `--yes` - Skip confirmation
+- `--permanent` - Bypass Recycle Bin
+- `--dry-run` - Preview only
 
 ## Configuration
 
@@ -180,28 +103,88 @@ min_age_days = 30
 min_size_mb = 100
 
 [exclusions]
-patterns = [
-    "**/important-project/**",
-    "**/backup/**"
-]
+patterns = ["**/important-project/**"]
 ```
-
-View or modify configuration:
 
 ```bash
-# Show current configuration
-sweeper config --show
-
-# Reset to defaults
-sweeper config --reset
-
-# Open config file in editor
-sweeper config --edit
+sweeper config --show    # View config
+sweeper config --edit    # Edit config
 ```
+
+## Building from Source
+
+**Prerequisites:** Rust, Visual Studio Build Tools
+
+```powershell
+.\build\build.ps1              # Debug
+.\build\build.ps1 -Release     # Release
+```
+
+Or: `cargo build --release`
+
+**Output:** `target\release\sweeper.exe`
+
+## TUI Screens
+
+### Confirm Screen (Clean Action)
+
+The Confirm screen appears when you're ready to delete selected files. It's organized into the following sections:
+
+**UI Structure (top to bottom):**
+
+1. **Logo & Tagline** - Application branding
+2. **Warning Section** - Shows deletion summary:
+  - Item count and total size
+  - Fun comparison (e.g., "That's like ~2 4K movies!")
+  - Default deletion method notice
+3. **Items Area** (split horizontally):
+  - **Left Panel: Summary Table** - Category breakdown showing:
+    - Category name
+    - Number of items per category
+    - Total size per category
+    - Grand total at bottom
+  - **Right Panel: File List** - Hierarchical list of files to delete:
+    - Grouped by category (expandable/collapsible)
+    - Shows file paths and sizes
+    - Categories can be expanded to see individual files
+4. **Actions Section** - Deletion method options:
+  - `[Y] Delete (to Recycle Bin)` - Standard deletion (recoverable)
+  - `[N] Cancel` - Return to Results screen
+  - `[P] Permanent Delete` - Bypass Recycle Bin (cannot be undone!)
+5. **Shortcuts Bar** - Available keyboard shortcuts
+
+**Available Actions:**
+
+- `**Y**` - Execute deletion to Recycle Bin (recoverable)
+- `**N**` - Cancel and return to Results screen
+- `**P**` - Execute permanent deletion (bypasses Recycle Bin, cannot be undone)
+- `**Esc**` - Cancel and return to Results screen
+
+**Navigation:**
+
+- **↑/↓ Arrow Keys** - Navigate through the file list (categories and individual items)
+- **Space** - Toggle selection of the current item or category (select/deselect for deletion)
+- **Enter** - Toggle category expansion/collapse when cursor is on a category header
+- **Tab** - Not available on this screen (only file list navigation)
+
+**Selection:**
+
+- Items show `[X]` when selected, `[ ]` when not selected
+- Categories show `[X]` when all items selected, `[-]` when partially selected, `[ ]` when none selected
+- Use **Space** on an item to toggle its selection
+- Use **Space** on a category header to toggle all items in that category
+- Deselected items disappear from the list (you can go back to Results screen to reselect)
+- Deletion is disabled when no items are selected
 
 ## Troubleshooting
 
-If you encounter build issues, see [build/BUILD_TROUBLESHOOTING.md](build/BUILD_TROUBLESHOOTING.md) for common solutions.
+- **File locked:** File is open in another app. Will be skipped automatically.
+- **Long paths:** Handled automatically. Update if issues persist.
+- **Symlinks:** Automatically skipped (expected behavior).
+- **TUI not working:** Use PowerShell/Windows Terminal, or CLI mode: `sweeper scan --all`
+- **No items found:** Check project activity with `--project-age 0` or file ages with `--min-age 0`
+
+For build issues, see [build/BUILD_TROUBLESHOOTING.md](build/BUILD_TROUBLESHOOTING.md)
 
 ## License
 

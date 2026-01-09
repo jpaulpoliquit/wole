@@ -1,7 +1,5 @@
 use serde::Serialize;
 use std::path::PathBuf;
-use std::collections::HashMap;
-use crate::utils;
 use crate::theme::Theme;
 
 /// Output verbosity mode
@@ -16,6 +14,7 @@ pub enum OutputMode {
 #[derive(Default, Debug, Clone)]
 pub struct ScanResults {
     pub cache: CategoryResult,
+    pub app_cache: CategoryResult,
     pub temp: CategoryResult,
     pub trash: CategoryResult,
     pub build: CategoryResult,
@@ -52,6 +51,7 @@ struct JsonResults {
 #[derive(Serialize)]
 struct JsonCategories {
     cache: JsonCategory,
+    app_cache: JsonCategory,
     temp: JsonCategory,
     trash: JsonCategory,
     build: JsonCategory,
@@ -96,7 +96,8 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
     println!("{}", Theme::divider(60));
     
     let categories = [
-        ("Cache", &results.cache, "[OK] Safe to clean"),
+        ("Package cache", &results.cache, "[OK] Safe to clean"),
+        ("Application cache", &results.app_cache, "[OK] Safe to clean"),
         ("Temp", &results.temp, "[OK] Safe to clean"),
         ("Trash", &results.trash, "[OK] Safe to clean"),
         ("Build", &results.build, "[OK] Inactive projects"),
@@ -145,6 +146,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
     }
     
     let total_items = results.cache.items
+        + results.app_cache.items
         + results.temp.items
         + results.trash.items
         + results.build.items
@@ -156,6 +158,7 @@ pub fn print_human(results: &ScanResults, mode: OutputMode) {
         + results.empty.items
         + results.duplicates.items;
     let total_bytes = results.cache.size_bytes
+        + results.app_cache.size_bytes
         + results.temp.size_bytes
         + results.trash.size_bytes
         + results.build.size_bytes
@@ -195,6 +198,14 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 size_bytes: results.cache.size_bytes,
                 size_human: results.cache.size_human(),
                 paths: results.cache.paths.iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            },
+            app_cache: JsonCategory {
+                items: results.app_cache.items,
+                size_bytes: results.app_cache.size_bytes,
+                size_human: results.app_cache.size_human(),
+                paths: results.app_cache.paths.iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
@@ -281,6 +292,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
         },
         summary: JsonSummary {
             total_items: results.cache.items
+                + results.app_cache.items
                 + results.temp.items
                 + results.trash.items
                 + results.build.items
@@ -292,6 +304,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 + results.empty.items
                 + results.duplicates.items,
             total_bytes: results.cache.size_bytes
+                + results.app_cache.size_bytes
                 + results.temp.size_bytes
                 + results.trash.size_bytes
                 + results.build.size_bytes
@@ -304,6 +317,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 + results.duplicates.size_bytes,
             total_human: bytesize::to_string(
                 results.cache.size_bytes
+                    + results.app_cache.size_bytes
                     + results.temp.size_bytes
                     + results.trash.size_bytes
                     + results.build.size_bytes
@@ -329,168 +343,46 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
     }
     
     println!();
-    println!("{}", Theme::header("Detailed Analysis"));
-    println!("{}", Theme::divider_bold(60));
+    println!("Scan Results");
     println!();
     
-    let categories = [
-        ("Cache", &results.cache),
-        ("Temp", &results.temp),
+    // Define categories with their display names
+    let mut categories: Vec<(&str, &CategoryResult)> = vec![
         ("Trash", &results.trash),
-        ("Build", &results.build),
-        ("Downloads", &results.downloads),
-        ("Large", &results.large),
-        ("Old", &results.old),
-        ("Browser", &results.browser),
-        ("System", &results.system),
-        ("Empty", &results.empty),
+        ("Large Files", &results.large),
+        ("System Cache", &results.system),
+        ("Build Artifacts", &results.build),
+        ("Old Downloads", &results.downloads),
         ("Duplicates", &results.duplicates),
+        ("Old Files", &results.old),
+        ("Temp Files", &results.temp),
+        ("Package Cache", &results.cache),
+        ("Application Cache", &results.app_cache),
+        ("Browser Cache", &results.browser),
+        ("Empty Folders", &results.empty),
     ];
     
-    for (name, result) in categories {
-        if result.items > 0 {
-            println!("{}", format!("{} ({})", Theme::category(name), Theme::size(&result.size_human())));
-            println!("{}", Theme::divider(60));
-            
-            // Show all paths with sizes
-            let mut paths_with_sizes: Vec<(PathBuf, u64)> = result.paths.iter()
-                .filter_map(|p| {
-                    std::fs::metadata(p).ok()
-                        .map(|m| (p.clone(), m.len()))
-                })
-                .collect();
-            
-            // Sort by size descending
-            paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
-            
-            // Show top 10 or all if less than 10
-            let show_count = std::cmp::min(10, paths_with_sizes.len());
-            for (path, size) in paths_with_sizes.iter().take(show_count) {
-                println!("  {}  {}", 
-                    bytesize::to_string(*size, true),
-                    path.display().to_string()
-                );
-            }
-            
-            if paths_with_sizes.len() > show_count {
-                println!("  {} ... and {} more files", 
-                    "", 
-                    paths_with_sizes.len() - show_count
-                );
-            }
-            
-            // Special handling for large files: show file type breakdown
-            if name == "Large" && !result.paths.is_empty() {
-                println!();
-                println!("  File type breakdown:");
-                let mut type_counts: HashMap<&str, (usize, u64)> = HashMap::new();
-                
-                for path in &result.paths {
-                    let file_type = utils::detect_file_type(path);
-                    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    let entry = type_counts.entry(file_type.as_str()).or_insert((0, 0));
-                    entry.0 += 1;
-                    entry.1 += size;
-                }
-                
-                let mut type_vec: Vec<(&str, usize, u64)> = type_counts.iter()
-                    .map(|(k, (count, size))| (*k, *count, *size))
-                    .collect();
-                type_vec.sort_by(|a, b| b.2.cmp(&a.2));
-                
-                for (file_type, count, size) in type_vec.iter().take(5) {
-                    println!("    {}: {} files ({})", 
-                        Theme::secondary(file_type),
-                        Theme::value(&count.to_string()),
-                        Theme::muted(&bytesize::to_string(*size, true))
-                    );
-                }
-            }
-            
-            // Special handling for downloads: show extension breakdown
-            if name == "Downloads" && !result.paths.is_empty() {
-                println!();
-                println!("  Extension breakdown:");
-                let mut ext_counts: HashMap<String, (usize, u64)> = HashMap::new();
-                
-                for path in &result.paths {
-                    if let Some(ext) = path.extension() {
-                        let ext_str = ext.to_string_lossy().to_lowercase();
-                        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                        let entry = ext_counts.entry(ext_str).or_insert((0, 0));
-                        entry.0 += 1;
-                        entry.1 += size;
-                    } else {
-                        let entry = ext_counts.entry("(no extension)".to_string()).or_insert((0, 0));
-                        entry.0 += 1;
-                        entry.1 += std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-                    }
-                }
-                
-                let mut ext_vec: Vec<(String, usize, u64)> = ext_counts.iter()
-                    .map(|(k, (count, size))| (k.clone(), *count, *size))
-                    .collect();
-                ext_vec.sort_by(|a, b| b.2.cmp(&a.2));
-                
-                for (ext, count, size) in ext_vec.iter().take(5) {
-                    println!("    .{}: {} files ({})", 
-                        Theme::secondary(ext),
-                        Theme::value(&count.to_string()),
-                        Theme::muted(&bytesize::to_string(*size, true))
-                    );
-                }
-            }
-            
-            // Special handling for old files: show age info
-            if name == "Old" && !result.paths.is_empty() {
-                println!();
-                println!("  Age breakdown:");
-                let mut age_groups: HashMap<String, (usize, u64)> = HashMap::new();
-                
-                for path in &result.paths {
-                    if let Ok(metadata) = std::fs::metadata(path) {
-                        if let Ok(accessed) = metadata.accessed() {
-                            let age_days = accessed.elapsed()
-                                .map(|d| d.as_secs() / 86400)
-                                .unwrap_or(0);
-                            
-                            let age_group = if age_days < 90 {
-                                "< 90 days".to_string()
-                            } else if age_days < 180 {
-                                "90-180 days".to_string()
-                            } else if age_days < 365 {
-                                "180-365 days".to_string()
-                            } else {
-                                "> 1 year".to_string()
-                            };
-                            
-                            let size = metadata.len();
-                            let entry = age_groups.entry(age_group).or_insert((0, 0));
-                            entry.0 += 1;
-                            entry.1 += size;
-                        }
-                    }
-                }
-                
-                let mut age_vec: Vec<(String, usize, u64)> = age_groups.iter()
-                    .map(|(k, (count, size))| (k.clone(), *count, *size))
-                    .collect();
-                age_vec.sort_by(|a, b| b.2.cmp(&a.2));
-                
-                for (age, count, size) in &age_vec {
-                    println!("    {}: {} files ({})", 
-                        Theme::secondary(age),
-                        Theme::value(&count.to_string()),
-                        Theme::muted(&bytesize::to_string(*size, true))
-                    );
-                }
-            }
-            
-            println!();
-        }
+    // Filter out categories with no items and sort by size descending
+    categories.retain(|(_, result)| result.items > 0);
+    categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
+    
+    // Print table header
+    println!("{:<25} {:>10} {:>12}", "Category", "Files", "Size");
+    println!("{}", "─".repeat(47));
+    
+    // Print category rows
+    for (name, result) in &categories {
+        println!(
+            "{:<25} {:>10} {:>12}",
+            name,
+            format_number(result.items as u64),
+            result.size_human()
+        );
     }
     
+    // Calculate totals
     let total_items = results.cache.items
+        + results.app_cache.items
         + results.temp.items
         + results.trash.items
         + results.build.items
@@ -502,6 +394,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.empty.items
         + results.duplicates.items;
     let total_bytes = results.cache.size_bytes
+        + results.app_cache.size_bytes
         + results.temp.size_bytes
         + results.trash.size_bytes
         + results.build.size_bytes
@@ -513,11 +406,115 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.empty.size_bytes
         + results.duplicates.size_bytes;
     
-    println!("{}", Theme::divider_bold(60));
+    // Print separator and total
+    println!("{}", "─".repeat(47));
     println!(
-        "Total: {} items, {} reclaimable",
-        Theme::value(&total_items.to_string()),
-        Theme::success(&bytesize::to_string(total_bytes, true))
+        "{:<25} {:>10} {:>12}",
+        "Total",
+        format_number(total_items as u64),
+        bytesize::to_string(total_bytes, true)
     );
     println!();
+}
+
+/// Print disk insights in CLI format with progress bars
+pub fn print_disk_insights(
+    insights: &crate::disk_usage::DiskInsights,
+    root_path: &std::path::Path,
+    top_n: usize,
+    _sort_by: crate::disk_usage::SortBy,
+    mode: OutputMode,
+) {
+    if mode == OutputMode::Quiet {
+        return;
+    }
+    
+    use crate::disk_usage::get_top_folders;
+    
+    // Get top folders
+    let top_folders = get_top_folders(&insights.root, top_n);
+    
+    println!();
+    println!("{}  {}  |  Total: {}  |  {} files",
+        Theme::header("Disk Insights"),
+        Theme::primary(&root_path.display().to_string()),
+        Theme::size(&bytesize::to_string(insights.total_size, true)),
+        Theme::value(&format_number(insights.total_files))
+    );
+    println!();
+    
+    // Show root with 100% bar
+    let root_bar = render_progress_bar(100.0, 20);
+    println!("{}  {}  {}  {}",
+        Theme::secondary("#"),
+        root_bar,
+        Theme::value("100.0%"),
+        Theme::size(&bytesize::to_string(insights.total_size, true))
+    );
+    println!("   {}", Theme::muted(&root_path.display().to_string()));
+    println!();
+    
+    // Show top folders
+    for (i, folder) in top_folders.iter().enumerate() {
+        let num = i + 1;
+        let bar = render_progress_bar(folder.percentage, 20);
+        let size_str = bytesize::to_string(folder.size, true);
+        let files_str = format_number(folder.file_count);
+        
+        println!("{}  {}  {}  {}  {}  {}",
+            Theme::value(&num.to_string()),
+            bar,
+            Theme::value(&format!("{:.1}%", folder.percentage)),
+            Theme::size(&size_str),
+            Theme::category(&folder.name),
+            Theme::muted(&format!("({} files)", files_str))
+        );
+    }
+    
+    // Show largest files if available
+    if !insights.largest_files.is_empty() {
+        println!();
+        println!("{}", Theme::divider(60));
+        println!();
+        println!("{}", Theme::primary("Largest Files:"));
+        for (file_path, size) in insights.largest_files.iter().take(5) {
+            let relative = crate::utils::to_relative_path(file_path, root_path);
+            println!("  {}  {}",
+                Theme::size(&bytesize::to_string(*size, true)),
+                Theme::muted(&relative)
+            );
+        }
+    }
+    
+    println!();
+    if mode == OutputMode::Normal || mode == OutputMode::Verbose {
+        println!("Run {} to explore interactively.",
+            Theme::command("sweeper analyze --interactive")
+        );
+    }
+    println!();
+}
+
+/// Render a progress bar with filled and empty blocks
+fn render_progress_bar(percentage: f64, width: usize) -> String {
+    let filled = (percentage / 100.0 * width as f64).round() as usize;
+    let filled = filled.min(width);
+    let empty = width.saturating_sub(filled);
+    format!("{}{}",
+        Theme::size(&"█".repeat(filled)),
+        Theme::muted(&"░".repeat(empty))
+    )
+}
+
+/// Format number with commas
+fn format_number(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
 }

@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
 use anyhow::{Context, Result};
@@ -11,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// - Thumbnail cache (thumbcache_*.db)
 /// - Windows Update cache (if accessible)
 /// - Icon cache
-pub fn scan(_root: &Path) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
     
@@ -27,13 +28,15 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
                     let path = entry.path();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         if name.starts_with("thumbcache_") && name.ends_with(".db") {
-                            if let Ok(metadata) = std::fs::metadata(&path) {
-                                if metadata.is_file() {
-                                    let size = metadata.len();
-                                    if size > 0 {
-                                        result.items += 1;
-                                        result.size_bytes += size;
-                                        paths.push(path);
+                            if !config.is_excluded(&path) {
+                                if let Ok(metadata) = std::fs::metadata(&path) {
+                                    if metadata.is_file() {
+                                        let size = metadata.len();
+                                        if size > 0 {
+                                            result.items += 1;
+                                            result.size_bytes += size;
+                                            paths.push(path);
+                                        }
                                     }
                                 }
                             }
@@ -59,7 +62,7 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
     
     // Scan Windows Update cache (requires admin, gracefully skip if denied)
     let windows_update_path = PathBuf::from("C:\\Windows\\SoftwareDistribution\\Download");
-    if windows_update_path.exists() {
+    if windows_update_path.exists() && !config.is_excluded(&windows_update_path) {
         match utils::calculate_dir_size(&windows_update_path) {
             size if size > 0 => {
                 result.items += 1;

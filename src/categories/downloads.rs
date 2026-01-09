@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
@@ -12,10 +13,11 @@ const MAX_RESULTS: usize = 200;
 ///
 /// Optimizations:
 /// - Only scans top-level files (max_depth 1) - subfolders are usually intentional
+/// - Checks config exclusions during traversal
 /// - Sorts by size descending (biggest files first)
 /// - Limits to top 200 results
 /// - No git checks needed (Downloads is never a git repo)
-pub fn scan(_root: &Path, min_age_days: u64) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, min_age_days: u64, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
 
     let cutoff = Utc::now() - Duration::days(min_age_days as i64);
@@ -40,6 +42,14 @@ pub fn scan(_root: &Path, min_age_days: u64) -> Result<CategoryResult> {
         .max_depth(1) // Only top-level files
         .follow_links(false)
         .into_iter()
+        .filter_entry(|e| {
+            // Check user config exclusions IMMEDIATELY (prevents traversal)
+            // Only check directories - files don't need exclusion checks during traversal
+            if e.file_type().is_dir() && config.is_excluded(e.path()) {
+                return false;
+            }
+            true
+        })
     {
         match entry {
             Ok(entry) => {

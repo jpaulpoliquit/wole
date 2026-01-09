@@ -15,3 +15,8 @@ pub mod progress;
 pub mod utils;
 pub mod analyzer;
 pub mod theme;
+pub mod tui;
+pub mod history;
+pub mod scan_events;
+pub mod restore;
+pub mod disk_usage;

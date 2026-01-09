@@ -4,8 +4,9 @@ use crate::config::Config;
 use crate::git;
 use crate::output::{OutputMode, ScanResults, CategoryResult};
 use crate::progress;
+use crate::utils;
 use anyhow::Result;
-use rayon::prelude::*; // Re-enabled
+// use rayon::prelude::*; // Disabled: using sequential scan to avoid thrashing
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -27,6 +28,9 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
     
     if options.cache {
         enabled.push(("cache", ScanTask::Cache));
+    }
+    if options.app_cache {
+        enabled.push(("app_cache", ScanTask::AppCache));
     }
     if options.temp {
         enabled.push(("temp", ScanTask::Temp));
@@ -76,10 +80,20 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
     let scanned_count = AtomicUsize::new(0);
     let path_owned = path.to_path_buf();
     
-    // Run scans in parallel using rayon (re-enabled now that git2 is removed)
+    // Clone configs for use in parallel closure (needs to be Send + Sync)
+    let build_config = config.categories.build.clone();
+    let duplicates_config = config.categories.duplicates.clone();
+    let config_clone = config.clone(); // Clone full config for parallel access
+    
+    // Run scans sequentially to avoid disk thrashing and thread pool explosion
+    // Each individual scanner (large, duplicates, build) manages its own parallelism
+    // and uses the full system resources. Running them in parallel causes massive
+    // I/O contention and "loading so bad" system freezes.
     let scan_results: Vec<(&str, Result<CategoryResult>)> = enabled
-        .par_iter()
+        .iter()
         .map(|(name, task)| {
+                // Clone config for this task
+                let config = &config_clone;
                 
                 // Update progress
                 let count = scanned_count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -87,21 +101,23 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
                     sp.set_message(format!("Scanning {} ({}/{})...", name, count, total_categories));
                 }
                 
-                // Execute scan
+                // Execute scan - pass config to all scanners for exclusion filtering
                 let result = match task {
-                    ScanTask::Cache => categories::cache::scan(&path_owned),
-                    ScanTask::Temp => categories::temp::scan(&path_owned),
+                    ScanTask::Cache => categories::cache::scan(&path_owned, config),
+                    ScanTask::AppCache => categories::app_cache::scan(&path_owned, config),
+                    ScanTask::Temp => categories::temp::scan(&path_owned, config),
                     ScanTask::Trash => categories::trash::scan(),
-                ScanTask::Build(age) => categories::build::scan(&path_owned, *age),
-                    ScanTask::Downloads(age) => categories::downloads::scan(&path_owned, *age),
-                    ScanTask::Large(size) => categories::large::scan(&path_owned, *size),
-                    ScanTask::Old(age) => categories::old::scan(&path_owned, *age),
-                    ScanTask::Browser => categories::browser::scan(&path_owned),
-                    ScanTask::System => categories::system::scan(&path_owned),
-                    ScanTask::Empty => categories::empty::scan(&path_owned),
+                    ScanTask::Build(age) => categories::build::scan(&path_owned, *age, Some(&build_config), config),
+                    ScanTask::Downloads(age) => categories::downloads::scan(&path_owned, *age, config),
+                    ScanTask::Large(size) => categories::large::scan(&path_owned, *size, config),
+                    ScanTask::Old(age) => categories::old::scan(&path_owned, *age, config),
+                    ScanTask::Browser => categories::browser::scan(&path_owned, config),
+                    ScanTask::System => categories::system::scan(&path_owned, config),
+                    ScanTask::Empty => categories::empty::scan(&path_owned, config),
                     ScanTask::Duplicates => {
                         // Duplicates returns a special result type
-                        match categories::duplicates::scan(&path_owned) {
+                        // Use scan_with_config to pass configuration
+                        match categories::duplicates::scan_with_config(&path_owned, Some(&duplicates_config), config) {
                             Ok(dup_result) => Ok(dup_result.to_category_result()),
                             Err(e) => Err(e),
                         }
@@ -121,6 +137,7 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
     for (category, result) in scan_results {
         match (category, result) {
             ("cache", Ok(r)) => results.cache = r,
+            ("app_cache", Ok(r)) => results.app_cache = r,
             ("temp", Ok(r)) => results.temp = r,
             ("trash", Ok(r)) => results.trash = r,
             ("build", Ok(r)) => results.build = r,
@@ -140,7 +157,10 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
         }
     }
     
-    // Filter out excluded paths
+    // Note: Exclusions are now handled during traversal in each scanner's filter_entry,
+    // so filter_exclusions is no longer needed. However, we keep it as a safety net
+    // for any paths that might have been missed (should be rare).
+    // This can be removed entirely once we verify all scanners properly handle exclusions.
     filter_exclusions(&mut results, config);
     
     Ok(results)
@@ -150,6 +170,7 @@ pub fn scan_all(path: &Path, options: ScanOptions, mode: OutputMode, config: &Co
 #[derive(Clone, Copy)]
 enum ScanTask {
     Cache,
+    AppCache,
     Temp,
     Trash,
     Build(u64),
@@ -163,27 +184,68 @@ enum ScanTask {
 }
 
 /// Filter out paths matching exclusion patterns
+/// 
+/// Optimized to avoid recalculating sizes - uses pre-calculated sizes from scan results
 fn filter_exclusions(results: &mut ScanResults, config: &Config) {
-    let filter_paths = |paths: &mut Vec<std::path::PathBuf>| {
-        paths.retain(|path| !config.is_excluded(path));
+    // Helper to filter paths and recalculate size_bytes efficiently
+    let filter_and_recalculate = |paths: &mut Vec<std::path::PathBuf>, size_bytes: &mut u64| {
+        let original_count = paths.len();
+        let mut excluded_size = 0u64;
+        
+        // Filter out excluded paths and track their sizes
+        paths.retain(|path| {
+            let is_excluded = config.is_excluded(path);
+            if is_excluded {
+                // Calculate size of excluded path before removing
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    if metadata.is_file() {
+                        excluded_size += metadata.len();
+                    } else if metadata.is_dir() {
+                        excluded_size += utils::calculate_dir_size(path);
+                    }
+                }
+            }
+            !is_excluded
+        });
+        
+        // Subtract excluded sizes instead of recalculating everything
+        if excluded_size > 0 {
+            *size_bytes = size_bytes.saturating_sub(excluded_size);
+        }
+        
+        // If we filtered out many paths, the size estimate might be off
+        // Only recalculate if we filtered out a significant portion (>10%)
+        if original_count > 0 && (original_count - paths.len()) * 100 / original_count > 10 {
+            // Recalculate for accuracy when many paths were excluded
+            *size_bytes = 0;
+            for path in paths.iter() {
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    if metadata.is_file() {
+                        *size_bytes += metadata.len();
+                    } else if metadata.is_dir() {
+                        *size_bytes += utils::calculate_dir_size(path);
+                    }
+                }
+            }
+        }
     };
     
-    filter_paths(&mut results.cache.paths);
-    filter_paths(&mut results.temp.paths);
-    filter_paths(&mut results.trash.paths);
-    filter_paths(&mut results.build.paths);
-    filter_paths(&mut results.downloads.paths);
-    filter_paths(&mut results.large.paths);
-    filter_paths(&mut results.old.paths);
-    filter_paths(&mut results.browser.paths);
-    filter_paths(&mut results.system.paths);
-    filter_paths(&mut results.empty.paths);
-    filter_paths(&mut results.duplicates.paths);
+    filter_and_recalculate(&mut results.cache.paths, &mut results.cache.size_bytes);
+    filter_and_recalculate(&mut results.app_cache.paths, &mut results.app_cache.size_bytes);
+    filter_and_recalculate(&mut results.temp.paths, &mut results.temp.size_bytes);
+    filter_and_recalculate(&mut results.trash.paths, &mut results.trash.size_bytes);
+    filter_and_recalculate(&mut results.build.paths, &mut results.build.size_bytes);
+    filter_and_recalculate(&mut results.downloads.paths, &mut results.downloads.size_bytes);
+    filter_and_recalculate(&mut results.large.paths, &mut results.large.size_bytes);
+    filter_and_recalculate(&mut results.old.paths, &mut results.old.size_bytes);
+    filter_and_recalculate(&mut results.browser.paths, &mut results.browser.size_bytes);
+    filter_and_recalculate(&mut results.system.paths, &mut results.system.size_bytes);
+    filter_and_recalculate(&mut results.empty.paths, &mut results.empty.size_bytes);
+    filter_and_recalculate(&mut results.duplicates.paths, &mut results.duplicates.size_bytes);
     
     // Recalculate item counts after filtering
-    // NOTE: Size bytes are already correctly set by each scanner
-    // Don't recalculate - calculate_total_size() only works for files, not directories
     results.cache.items = results.cache.paths.len();
+    results.app_cache.items = results.app_cache.paths.len();
     results.temp.items = results.temp.paths.len();
     results.trash.items = results.trash.paths.len();
     results.build.items = results.build.paths.len();
@@ -221,7 +283,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_scan_all_no_categories() {
         let temp_dir = create_test_dir();
         let options = ScanOptions {
@@ -251,7 +312,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_filter_exclusions() {
         let mut results = ScanResults::default();
         let mut config = Config::default();
@@ -275,7 +335,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_calculate_total_size() {
         let temp_dir = create_test_dir();
         let file1 = temp_dir.path().join("file1.txt");

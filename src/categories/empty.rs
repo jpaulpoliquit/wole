@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
 use anyhow::{Context, Result};
@@ -10,7 +11,7 @@ use walkdir::WalkDir;
 /// 
 /// An empty folder is one that contains no files (recursively).
 /// Folders that only contain other empty folders are also considered empty.
-pub fn scan(_root: &Path) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
     
@@ -30,7 +31,20 @@ pub fn scan(_root: &Path) -> Result<CategoryResult> {
             .max_depth(MAX_DEPTH)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| !should_skip_entry(e))
+            .filter_entry(|e| {
+                // 1. Check hardcoded skips first (fast)
+                if should_skip_entry(e) {
+                    return false;
+                }
+                
+                // 2. Check user config exclusions IMMEDIATELY (prevents traversal)
+                // Only check directories - files don't need exclusion checks during traversal
+                if e.file_type().is_dir() && config.is_excluded(e.path()) {
+                    return false;
+                }
+                
+                true
+            })
         {
             let entry = match entry {
                 Ok(e) => e,
@@ -99,8 +113,8 @@ fn is_dir_empty(path: &Path) -> Result<bool> {
     {
         match entry {
             Ok(entry) => {
-                // Avoid Windows reparse-point cycles when probing emptiness.
-                if entry.file_type().is_dir() && utils::is_windows_reparse_point(entry.path()) {
+                // Skip symlinks, junctions, and reparse points when probing emptiness
+                if entry.file_type().is_dir() && utils::should_skip_entry(entry.path()) {
                     continue;
                 }
                 if entry.file_type().is_file() {
@@ -125,8 +139,8 @@ fn should_skip_entry(entry: &walkdir::DirEntry) -> bool {
         return false;
     }
 
-    // Avoid Windows junction/reparse-point cycles (common in OneDrive folders).
-    if utils::is_windows_reparse_point(entry.path()) {
+    // Skip symlinks, junctions, and reparse points (prevents infinite loops)
+    if utils::should_skip_entry(entry.path()) {
         return true;
     }
     

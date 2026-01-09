@@ -13,6 +13,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
     Cache,
+    AppCache,
     Temp,
     Trash,
     Build,
@@ -29,15 +30,16 @@ impl Category {
     pub fn display_name(&self) -> &'static str {
         match self {
             Category::Cache => "Cache",
-            Category::Temp => "Temp",
+            Category::AppCache => "Application Cache",
+            Category::Temp => "Temp Files",
             Category::Trash => "Trash",
-            Category::Build => "Build",
-            Category::Downloads => "Downloads",
-            Category::Large => "Large",
-            Category::Old => "Old",
-            Category::Browser => "Browser",
-            Category::System => "System",
-            Category::Empty => "Empty",
+            Category::Build => "Build Artifacts",
+            Category::Downloads => "Old Downloads",
+            Category::Large => "Large Files",
+            Category::Old => "Old Files",
+            Category::Browser => "Browser Cache",
+            Category::System => "System Cache",
+            Category::Empty => "Empty Folders",
             Category::Duplicates => "Duplicates",
         }
     }
@@ -115,6 +117,10 @@ pub fn run_scan(path: &PathBuf, options: &ScanOptions, config: &Config) -> Resul
     // Build list of scanners based on options
     if options.cache {
         scanners.push(Box::new(CacheScannerAdapter));
+    }
+
+    if options.app_cache {
+        scanners.push(Box::new(AppCacheScannerAdapter));
     }
 
     if options.temp {
@@ -400,8 +406,25 @@ impl Scanner for CacheScannerAdapter {
 
     fn scan(&self, _path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::cache;
-        let result = cache::scan(std::path::Path::new(""))?;
+        let result = cache::scan(std::path::Path::new(""), config)?;
         Ok(convert_category_result(result, Category::Cache, "Package manager cache", config))
+    }
+}
+
+struct AppCacheScannerAdapter;
+impl Scanner for AppCacheScannerAdapter {
+    fn name(&self) -> &'static str {
+        "App Cache Scanner"
+    }
+
+    fn category(&self) -> Category {
+        Category::AppCache
+    }
+
+    fn scan(&self, _path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
+        use crate::categories::app_cache;
+        let result = app_cache::scan(std::path::Path::new(""), config)?;
+        Ok(convert_category_result(result, Category::AppCache, "Application cache", config))
     }
 }
 
@@ -417,7 +440,7 @@ impl Scanner for TempScannerAdapter {
 
     fn scan(&self, _path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::temp;
-        let result = temp::scan(std::path::Path::new(""))?;
+        let result = temp::scan(std::path::Path::new(""), config)?;
         Ok(convert_category_result(result, Category::Temp, "Temporary files", config))
     }
 }
@@ -451,7 +474,7 @@ impl Scanner for BuildScannerAdapter {
 
     fn scan(&self, path: &PathBuf, options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::build;
-        let result = build::scan(path, options.project_age_days)?;
+        let result = build::scan(path, options.project_age_days, Some(&config.categories.build), config)?;
         Ok(convert_category_result(result, Category::Build, "Build artifacts from inactive projects", config))
     }
 }
@@ -468,7 +491,7 @@ impl Scanner for DownloadsScannerAdapter {
 
     fn scan(&self, _path: &PathBuf, options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::downloads;
-        let result = downloads::scan(std::path::Path::new(""), options.min_age_days)?;
+        let result = downloads::scan(std::path::Path::new(""), options.min_age_days, config)?;
         Ok(convert_category_result(result, Category::Downloads, "Old downloads", config))
     }
 }
@@ -485,7 +508,7 @@ impl Scanner for LargeScannerAdapter {
 
     fn scan(&self, _path: &PathBuf, options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::large;
-        let result = large::scan(std::path::Path::new(""), options.min_size_bytes)?;
+        let result = large::scan(std::path::Path::new(""), options.min_size_bytes, config)?;
         Ok(convert_category_result(result, Category::Large, "Large files", config))
     }
 }
@@ -502,7 +525,7 @@ impl Scanner for OldScannerAdapter {
 
     fn scan(&self, path: &PathBuf, options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::old;
-        let result = old::scan(path, options.min_age_days)?;
+        let result = old::scan(path, options.min_age_days, config)?;
         Ok(convert_category_result(result, Category::Old, "Old files", config))
     }
 }
@@ -519,7 +542,7 @@ impl Scanner for BrowserScannerAdapter {
 
     fn scan(&self, path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::browser;
-        let result = browser::scan(path)?;
+        let result = browser::scan(path, config)?;
         Ok(convert_category_result(result, Category::Browser, "Browser cache", config))
     }
 }
@@ -536,7 +559,7 @@ impl Scanner for SystemScannerAdapter {
 
     fn scan(&self, path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::system;
-        let result = system::scan(path)?;
+        let result = system::scan(path, config)?;
         Ok(convert_category_result(result, Category::System, "System cache", config))
     }
 }
@@ -553,7 +576,7 @@ impl Scanner for EmptyScannerAdapter {
 
     fn scan(&self, path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::empty;
-        let result = empty::scan(path)?;
+        let result = empty::scan(path, config)?;
         Ok(convert_category_result(result, Category::Empty, "Empty folders", config))
     }
 }
@@ -570,7 +593,7 @@ impl Scanner for DuplicatesScannerAdapter {
 
     fn scan(&self, path: &PathBuf, _options: &ScanOptions, config: &Config) -> Result<Vec<CleanableFile>> {
         use crate::categories::duplicates;
-        let result = duplicates::scan(path)?;
+        let result = duplicates::scan_with_config(path, Some(&config.categories.duplicates), config)?;
         let category_result = result.to_category_result();
         Ok(convert_category_result(category_result, Category::Duplicates, "Duplicate files", config))
     }

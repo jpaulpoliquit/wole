@@ -6,27 +6,64 @@ $ErrorActionPreference = "Stop"
 $REPO = "jpaulpoliquit/sweeper"
 
 # Detect architecture
+# Check PROCESSOR_ARCHITECTURE environment variable first
 $ARCH = $env:PROCESSOR_ARCHITECTURE
+
+# Also check PROCESSOR_ARCHITEW6432 for 32-bit processes on 64-bit systems
+if ([string]::IsNullOrEmpty($ARCH) -or $ARCH -eq "x86") {
+    $ARCH = $env:PROCESSOR_ARCHITEW6432
+}
+
+# Determine architecture
 if ([string]::IsNullOrEmpty($ARCH)) {
     # Fallback: check if system is 64-bit
     if ([System.Environment]::Is64BitOperatingSystem) {
-        $ARCH = "x86_64"
+        # Check if ARM64 (try RuntimeInformation first, fallback to env var)
+        try {
+            $procArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+            if ($procArch -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
+                $ARCH = "arm64"
+            } else {
+                $ARCH = "x86_64"
+            }
+        } catch {
+            # RuntimeInformation not available (older .NET), check env var
+            if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") {
+                $ARCH = "arm64"
+            } else {
+                $ARCH = "x86_64"
+            }
+        }
     } else {
-        Write-Error "Unsupported architecture: Unable to detect system architecture"
-        exit 1
+        # 32-bit system
+        $ARCH = "i686"
     }
 } elseif ($ARCH -eq "AMD64" -or $ARCH -eq "x64") {
     $ARCH = "x86_64"
-} elseif ($ARCH -eq "ARM64") {
+} elseif ($ARCH -eq "ARM64" -or $ARCH -eq "arm64") {
     $ARCH = "arm64"
+} elseif ($ARCH -eq "x86" -or $ARCH -eq "X86") {
+    # Could be 32-bit system or 32-bit process on 64-bit system
+    # Check if running on 64-bit OS
+    if ([System.Environment]::Is64BitOperatingSystem) {
+        # 32-bit process on 64-bit system - check actual architecture
+        try {
+            $procArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
+            if ($procArch -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
+                $ARCH = "arm64"
+            } else {
+                $ARCH = "x86_64"
+            }
+        } catch {
+            # Fallback: assume x86_64 for 64-bit OS
+            $ARCH = "x86_64"
+        }
+    } else {
+        # True 32-bit system
+        $ARCH = "i686"
+    }
 } else {
     Write-Warning "Unknown architecture '$ARCH', defaulting to x86_64"
-    $ARCH = "x86_64"
-}
-
-# Windows only has x86_64 builds for now
-if ($ARCH -ne "x86_64") {
-    Write-Warning "Only x86_64 builds are available. Attempting x86_64..."
     $ARCH = "x86_64"
 }
 
@@ -63,18 +100,8 @@ try {
     }
     
     # Determine install location
-    $INSTALL_DIR = ""
-    $NEEDS_ADMIN = $false
-    
-    # Try Program Files first (requires admin)
-    $PROGRAM_FILES = ${env:ProgramFiles}
-    if (Test-Path $PROGRAM_FILES) {
-        $INSTALL_DIR = Join-Path $PROGRAM_FILES "sweeper"
-        $NEEDS_ADMIN = $true
-    } else {
-        # Fall back to user directory
-        $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "sweeper\bin"
-    }
+    # Use user directory by default (no admin required)
+    $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "sweeper\bin"
     
     # Create install directory
     New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
@@ -91,23 +118,10 @@ try {
     
     if ($CURRENT_PATH -notlike "*$INSTALL_DIR_NORMALIZED*") {
         Write-Host "Adding to PATH..." -ForegroundColor Gray
-        
-        if ($NEEDS_ADMIN) {
-            # Try to add to system PATH (requires admin)
-            $SYSTEM_PATH = [Environment]::GetEnvironmentVariable("Path", "Machine")
-            if ($SYSTEM_PATH -notlike "*$INSTALL_DIR_NORMALIZED*") {
-                Write-Host "Adding to system PATH requires administrator privileges." -ForegroundColor Yellow
-                Write-Host "You can add it manually or run this script as administrator." -ForegroundColor Yellow
-                Write-Host ""
-                Write-Host "To add manually, run this in PowerShell as Administrator:" -ForegroundColor Cyan
-                Write-Host "  [Environment]::SetEnvironmentVariable(`"Path`", `"$SYSTEM_PATH;$INSTALL_DIR_NORMALIZED`", `"Machine`")" -ForegroundColor White
-            }
-        } else {
-            # Add to user PATH
-            $NEW_PATH = "$CURRENT_PATH;$INSTALL_DIR_NORMALIZED"
-            [Environment]::SetEnvironmentVariable("Path", $NEW_PATH, "User")
-            Write-Host "Added $INSTALL_DIR_NORMALIZED to user PATH" -ForegroundColor Green
-        }
+        # Add to user PATH (no admin required)
+        $NEW_PATH = "$CURRENT_PATH;$INSTALL_DIR_NORMALIZED"
+        [Environment]::SetEnvironmentVariable("Path", $NEW_PATH, "User")
+        Write-Host "Added $INSTALL_DIR_NORMALIZED to user PATH" -ForegroundColor Green
     } else {
         Write-Host "Already in PATH" -ForegroundColor Gray
     }

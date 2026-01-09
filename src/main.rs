@@ -6,7 +6,8 @@ fn main() -> Result<()> {
     // Check if no arguments provided (only program name)
     let args: Vec<String> = env::args().collect();
     if args.len() == 1 {
-        Cli::show_interactive_menu();
+        // Launch TUI instead of text menu
+        sweeper::tui::run(None)?;
         return Ok(());
     }
     

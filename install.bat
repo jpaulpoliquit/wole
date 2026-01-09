@@ -7,19 +7,30 @@ setlocal enabledelayedexpansion
 set REPO=jpaulpoliquit/sweeper
 
 REM Detect architecture
+REM Check PROCESSOR_ARCHITECTURE (may be x86 for 32-bit processes on 64-bit systems)
+REM Also check PROCESSOR_ARCHITEW6432 for 64-bit architecture when running 32-bit process
 if "%PROCESSOR_ARCHITECTURE%"=="AMD64" (
     set ARCH=x86_64
 ) else if "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
     set ARCH=arm64
+) else if "%PROCESSOR_ARCHITECTURE%"=="x86" (
+    REM Could be 32-bit system or 32-bit process on 64-bit system
+    REM Check PROCESSOR_ARCHITEW6432 to see if running on 64-bit system
+    if "%PROCESSOR_ARCHITEW6432%"=="AMD64" (
+        set ARCH=x86_64
+    ) else if "%PROCESSOR_ARCHITEW6432%"=="ARM64" (
+        set ARCH=arm64
+    ) else (
+        REM True 32-bit system
+        set ARCH=i686
+    )
 ) else (
-    echo Unsupported architecture: %PROCESSOR_ARCHITECTURE%
-    exit /b 1
-)
-
-REM Windows only has x86_64 builds for now
-if not "%ARCH%"=="x86_64" (
-    echo Warning: Only x86_64 builds are available. Using x86_64...
-    set ARCH=x86_64
+    REM Try to detect via PowerShell for better accuracy
+    for /f "tokens=*" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "if ([System.Environment]::Is64BitOperatingSystem) { if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64) { 'arm64' } else { 'x86_64' } } else { 'i686' }"') do set ARCH=%%i
+    if "!ARCH!"=="" (
+        echo Warning: Could not detect architecture, defaulting to x86_64
+        set ARCH=x86_64
+    )
 )
 
 set ASSET=sweeper-windows-%ARCH%.zip

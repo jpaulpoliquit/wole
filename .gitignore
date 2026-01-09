@@ -2,7 +2,8 @@
 target/
 **/*.rs.bk
 *.pdb
-
+my_check_output
+*.log
 # Cargo
 # Uncomment the next line if you want to ignore Cargo.lock (typically tracked for binaries/apps)
 # Cargo.lock
@@ -30,7 +31,7 @@ Desktop.ini
 # Project-specific
 artifacts/
 *.log
-
+*.txt
 # Build scripts directory (for releases - users don't need these)
 # Note: build/ directory is tracked for developers, but can be excluded in release packages
 
@@ -38,3 +39,4 @@ artifacts/
 *.bak
 *.backup
 *~
+

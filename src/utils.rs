@@ -5,6 +5,147 @@
 
 use std::path::{Path, PathBuf};
 
+/// Convert to long path format for Windows (\\?\)
+/// 
+/// Windows has a default path length limit of 260 characters (MAX_PATH).
+/// The \\?\ prefix enables extended-length paths up to ~32,767 characters.
+/// This is common in deep `node_modules` directories.
+#[cfg(windows)]
+pub fn to_long_path(path: &Path) -> PathBuf {
+    // Already has long path prefix
+    if let Some(s) = path.to_str() {
+        if s.starts_with(r"\\?\") {
+            return path.to_path_buf();
+        }
+    }
+    
+    // Convert to absolute path first if relative
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    
+    // Add long path prefix
+    if let Some(s) = absolute.to_str() {
+        PathBuf::from(format!(r"\\?\{}", s))
+    } else {
+        path.to_path_buf()
+    }
+}
+
+#[cfg(not(windows))]
+pub fn to_long_path(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+/// Safe metadata that falls back to long path on Windows when normal access fails
+/// 
+/// Handles ERROR_PATH_NOT_FOUND (3) which occurs when paths exceed 260 chars
+#[cfg(windows)]
+pub fn safe_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    match std::fs::metadata(path) {
+        Ok(m) => Ok(m),
+        Err(e) if e.raw_os_error() == Some(3) => {
+            // ERROR_PATH_NOT_FOUND - try with long path prefix
+            std::fs::metadata(&to_long_path(path))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn safe_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    std::fs::metadata(path)
+}
+
+/// Safe symlink_metadata that falls back to long path on Windows
+#[cfg(windows)]
+pub fn safe_symlink_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => Ok(m),
+        Err(e) if e.raw_os_error() == Some(3) => {
+            std::fs::symlink_metadata(&to_long_path(path))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn safe_symlink_metadata(path: &Path) -> std::io::Result<std::fs::Metadata> {
+    std::fs::symlink_metadata(path)
+}
+
+/// Safe read_dir that falls back to long path on Windows
+#[cfg(windows)]
+pub fn safe_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
+    match std::fs::read_dir(path) {
+        Ok(rd) => Ok(rd),
+        Err(e) if e.raw_os_error() == Some(3) => {
+            std::fs::read_dir(&to_long_path(path))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn safe_read_dir(path: &Path) -> std::io::Result<std::fs::ReadDir> {
+    std::fs::read_dir(path)
+}
+
+/// Safe remove_file that uses long path on Windows
+#[cfg(windows)]
+pub fn safe_remove_file(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(3) => {
+            std::fs::remove_file(&to_long_path(path))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn safe_remove_file(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(path)
+}
+
+/// Safe remove_dir_all that uses long path on Windows
+#[cfg(windows)]
+pub fn safe_remove_dir_all(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(3) => {
+            std::fs::remove_dir_all(&to_long_path(path))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(not(windows))]
+pub fn safe_remove_dir_all(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_dir_all(path)
+}
+
+/// Check if entry should be skipped (symlink, junction, or reparse point)
+/// 
+/// Use this before descending into directories during scanning to prevent:
+/// - Infinite loops from circular symlinks
+/// - Following junctions to system directories
+/// - Issues with OneDrive placeholder files
+pub fn should_skip_entry(path: &Path) -> bool {
+    // Check for symlink via symlink_metadata
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            return true;
+        }
+    }
+    // Check for Windows reparse points (junctions, OneDrive placeholders)
+    is_windows_reparse_point(path)
+}
+
 /// Returns true if this path is a Windows reparse point (junction/symlink/mount point).
 ///
 /// Why this exists:
@@ -29,92 +170,79 @@ pub fn is_windows_reparse_point(path: &Path) -> bool {
     }
 }
 
-/// Calculate total size of a directory tree using an explicit iterative approach.
+/// Calculate total size of a directory tree using parallel traversal.
 /// 
-/// This uses a manual stack instead of WalkDir to avoid stack overflow on Windows,
-/// especially with deep directories like `target/` or `node_modules/`.
+/// Uses jwalk for parallel directory traversal which is 2-4x faster than sequential.
 /// 
 /// Optimized to:
-/// - Use explicit stack to prevent call-stack overflow
+/// - Use parallel traversal with rayon thread pool
 /// - Skip permission-denied errors gracefully
-/// - NOT walk into .git directories (just count the directory itself)
+/// - NOT walk into .git directories
 /// - Handle symlinks and reparse points safely (don't follow)
-/// - Limit total entries processed to prevent runaway scans
+/// - Limit depth to prevent runaway scans
+/// - Handle Windows long paths (>260 chars) gracefully
 pub fn calculate_dir_size(path: &Path) -> u64 {
-    // Logging removed to isolate stack overflow
+    use jwalk::WalkDir;
+    use std::sync::atomic::{AtomicU64, Ordering};
     
-    const MAX_ENTRIES: usize = 50_000; // Reduced safety limit
-    const MAX_DEPTH: usize = 10; // Limit depth to prevent excessive stack growth
+    const MAX_DEPTH: usize = 15;
     
-    let mut total = 0u64;
-    let mut entries_processed = 0usize;
+    let total = AtomicU64::new(0);
     
-    // Use an explicit stack: (path, depth) instead of just path
-    let mut dir_stack: Vec<(PathBuf, usize)> = vec![(path.to_path_buf(), 0)];
-    
-    
-    while let Some((current_dir, depth)) = dir_stack.pop() {
-        
-        if entries_processed >= MAX_ENTRIES {
-            break; // Safety limit reached
-        }
-        
-        if depth > MAX_DEPTH {
-            continue; // Skip directories that are too deep
-        }
-        
-        // Skip reparse points (junctions, OneDrive placeholders, etc.)
-        if is_windows_reparse_point(&current_dir) {
-            continue;
-        }
-        
-        let entries = match std::fs::read_dir(&current_dir) {
-            Ok(entries) => entries,
-            Err(_) => continue, // Permission denied or other error
-        };
-        
-        for entry in entries.flatten() {
-            entries_processed += 1;
-            if entries_processed >= MAX_ENTRIES {
-                break;
-            }
-            
-            let entry_path = entry.path();
-            
-            // Get metadata without following symlinks
-            let meta = match std::fs::symlink_metadata(&entry_path) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            
-            if meta.is_file() {
-                total += meta.len();
-            } else if meta.is_dir() {
-                // Skip reparse points
-                if is_windows_reparse_point(&entry_path) {
-                    continue;
-                }
-                
-                // Skip .git internals
-                if let Some(name) = entry_path.file_name() {
-                    let name_str = name.to_string_lossy();
-                    if name_str == ".git" {
-                        // Count .git itself but don't descend
-                        continue;
+    WalkDir::new(path)
+        .max_depth(MAX_DEPTH)
+        .follow_links(false)
+        .parallelism(jwalk::Parallelism::RayonDefaultPool { busy_timeout: std::time::Duration::from_secs(1) })
+        .process_read_dir(|_depth, _path, _state, children| {
+            // Skip directories we don't want to descend into
+            children.retain(|entry| {
+                if let Ok(ref e) = entry {
+                    if e.file_type().is_symlink() {
+                        return false;
                     }
-                    // Skip parent being .git
-                    if let Some(parent) = current_dir.file_name() {
-                        if parent.to_string_lossy() == ".git" {
-                            continue;
+                    if e.file_type().is_dir() {
+                        if let Some(name) = e.path().file_name() {
+                            let name_str = name.to_string_lossy();
+                            // Skip .git internals
+                            if name_str == ".git" {
+                                return false;
+                            }
                         }
                     }
                 }
-                
-                dir_stack.push((entry_path, depth + 1));
+                true
+            });
+        })
+        .into_iter()
+        .for_each(|entry| {
+            if let Ok(e) = entry {
+                if e.file_type().is_file() {
+                    if let Ok(meta) = e.metadata() {
+                        total.fetch_add(meta.len(), Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    
+    total.load(Ordering::Relaxed)
+}
+
+/// Fast size calculation for a single directory level (no recursion).
+/// 
+/// Use this for quick estimates when you don't need exact totals.
+/// Much faster than calculate_dir_size() for large directories.
+pub fn calculate_shallow_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+    
+    if let Ok(entries) = safe_read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = safe_metadata(&entry.path()) {
+                if meta.is_file() {
+                    total += meta.len();
+                }
             }
         }
     }
-    
     
     total
 }
@@ -223,6 +351,139 @@ pub fn is_hidden(path: &Path) -> bool {
     }
     
     false
+}
+
+/// Convert an absolute path to a relative path based on a base directory.
+/// 
+/// If the path is not under the base directory, tries to show a relative path from
+/// common parent directories (Documents, OneDrive/Documents, user home) to save space.
+/// If the path equals the base directory, returns ".".
+pub fn to_relative_path(path: &Path, base: &Path) -> String {
+    // Normalize paths by converting to strings for comparison (handles case-insensitivity on Windows)
+    let path_str = path.to_string_lossy().to_string();
+    let base_str = base.to_string_lossy().to_string();
+    
+    // Normalize separators and remove trailing separators
+    let path_normalized = path_str.replace('\\', "/").trim_end_matches('/').to_string();
+    let base_normalized = base_str.replace('\\', "/").trim_end_matches('/').to_string();
+    
+    // Helper to check if path starts with base (case-insensitive on Windows)
+    fn path_starts_with(path: &str, base: &str) -> bool {
+        #[cfg(windows)]
+        {
+            path.to_lowercase().starts_with(&base.to_lowercase())
+        }
+        #[cfg(not(windows))]
+        {
+            path.starts_with(base)
+        }
+    }
+    
+    // Try to make relative to base directory
+    if path_starts_with(&path_normalized, &base_normalized) {
+        let relative = &path_normalized[base_normalized.len()..].trim_start_matches('/');
+        if relative.is_empty() {
+            return ".".to_string();
+        }
+        return relative.to_string();
+    }
+    
+    // Path is not under base, try to make relative to common parent directories
+    #[cfg(windows)]
+    {
+        // Try OneDrive/Documents
+        if let Ok(userprofile) = std::env::var("USERPROFILE") {
+            let onedrive_docs = format!("{}/OneDrive/Documents", userprofile.replace('\\', "/"));
+            let onedrive_docs_normalized = onedrive_docs.trim_end_matches('/').to_string();
+            if path_starts_with(&path_normalized, &onedrive_docs_normalized) {
+                let relative = &path_normalized[onedrive_docs_normalized.len()..].trim_start_matches('/');
+                if !relative.is_empty() {
+                    return format!("documents/{}", relative);
+                }
+            }
+            
+            // Try Documents
+            let docs = format!("{}/Documents", userprofile.replace('\\', "/"));
+            let docs_normalized = docs.trim_end_matches('/').to_string();
+            if path_starts_with(&path_normalized, &docs_normalized) {
+                let relative = &path_normalized[docs_normalized.len()..].trim_start_matches('/');
+                if !relative.is_empty() {
+                    return format!("documents/{}", relative);
+                }
+            }
+            
+
+
+            // check other standard folders
+            for (name, folder) in [
+                ("Downloads", "Downloads"),
+                ("Pictures", "Pictures"),
+                ("Music", "Music"),
+                ("Videos", "Videos"),
+                ("Desktop", "Desktop")
+            ] {
+                let check_path = format!("{}/{}", userprofile.replace('\\', "/"), folder);
+                let check_normalized = check_path.trim_end_matches('/').to_string();
+                if path_starts_with(&path_normalized, &check_normalized) {
+                   let relative = &path_normalized[check_normalized.len()..].trim_start_matches('/');
+                   if relative.is_empty() {
+                       return name.to_string();
+                   } else {
+                       return format!("{}/{}", name, relative);
+                   }
+                }
+            }
+            
+            // Try user home
+            let home_normalized = userprofile.replace('\\', "/").trim_end_matches('/').to_string();
+            if path_starts_with(&path_normalized, &home_normalized) {
+                let relative = &path_normalized[home_normalized.len()..].trim_start_matches('/');
+                if !relative.is_empty() {
+                    // Start relative path directly if it's a top-level folder
+                    // e.g. "Downloads" or "Music"
+                    for folder in ["Downloads", "Pictures", "Music", "Videos", "Desktop"] {
+                        if relative.eq_ignore_ascii_case(folder) {
+                            return folder.to_string();
+                        }
+                        if relative.to_lowercase().starts_with(&format!("{}/", folder.to_lowercase())) {
+                            return relative.to_string();
+                        }
+                    }
+
+                    // Show last 2-3 components to save space
+                    let components: Vec<&str> = relative.split('/').collect();
+                    if components.len() > 3 {
+                        return format!(".../{}", components[components.len()-2..].join("/"));
+                    }
+                    return relative.to_string();
+                }
+            }
+        }
+    }
+    
+    #[cfg(not(windows))]
+    {
+        // Try user home on Unix
+        if let Ok(home) = std::env::var("HOME") {
+            let home_normalized = home.trim_end_matches('/').to_string();
+            if path_normalized.starts_with(&home_normalized) {
+                let relative = &path_normalized[home_normalized.len()..].trim_start_matches('/');
+                if !relative.is_empty() {
+                    return format!("~/{}", relative);
+                }
+            }
+        }
+    }
+    
+    // Fallback: show last 2-3 path components to save space
+    let components: Vec<&str> = path_normalized.split('/').filter(|s| !s.is_empty()).collect();
+    if components.len() > 3 {
+        format!(".../{}", components[components.len()-2..].join("/"))
+    } else if components.len() > 0 {
+        components.join("/")
+    } else {
+        path.display().to_string()
+    }
 }
 
 /// System directories to always skip during scanning
@@ -366,7 +627,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_is_hidden_dot_prefix() {
         let temp_dir = tempfile::tempdir().unwrap();
         let hidden_file = temp_dir.path().join(".hidden");
@@ -381,7 +641,6 @@ mod tests {
     }
     
     #[test]
-    #[ignore = "temporarily disabled to debug stack overflow"]
     fn test_calculate_dir_size() {
         let temp_dir = tempfile::tempdir().unwrap();
         let file1 = temp_dir.path().join("file1.txt");
@@ -408,5 +667,80 @@ mod tests {
         assert_eq!(FileType::Video.as_str(), "Video");
         assert_eq!(FileType::DiskImage.as_str(), "Disk Image");
         assert_eq!(FileType::Other.as_str(), "Other");
+    }
+    
+    #[test]
+    fn test_to_long_path() {
+        // Test that already-prefixed paths are returned unchanged
+        let prefixed = Path::new(r"\\?\C:\Users\test");
+        let result = to_long_path(prefixed);
+        assert!(result.to_str().unwrap().starts_with(r"\\?\"));
+        
+        // Test that normal paths get the prefix added (on Windows)
+        #[cfg(windows)]
+        {
+            let normal = Path::new(r"C:\Users\test\file.txt");
+            let result = to_long_path(normal);
+            assert!(result.to_str().unwrap().starts_with(r"\\?\"));
+        }
+    }
+    
+    #[test]
+    fn test_safe_metadata() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "hello").unwrap();
+        
+        // safe_metadata should work on normal paths
+        let meta = safe_metadata(&test_file).unwrap();
+        assert!(meta.is_file());
+        assert_eq!(meta.len(), 5);
+    }
+    
+    #[test]
+    fn test_safe_symlink_metadata() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+        fs::write(&test_file, "hello").unwrap();
+        
+        // safe_symlink_metadata should work on normal files
+        let meta = safe_symlink_metadata(&test_file).unwrap();
+        assert!(meta.is_file());
+    }
+    
+    #[test]
+    fn test_should_skip_entry_regular_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let test_file = temp_dir.path().join("regular.txt");
+        fs::write(&test_file, "test").unwrap();
+        
+        // Regular files should not be skipped
+        assert!(!should_skip_entry(&test_file));
+    }
+    
+    #[test]
+    fn test_should_skip_entry_regular_dir() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let test_dir = temp_dir.path().join("regular_dir");
+        fs::create_dir(&test_dir).unwrap();
+        
+        // Regular directories should not be skipped
+        assert!(!should_skip_entry(&test_dir));
+    }
+    
+    #[test]
+    #[cfg(unix)]
+    fn test_should_skip_entry_symlink() {
+        use std::os::unix::fs::symlink;
+        
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("target.txt");
+        let link = temp_dir.path().join("link.txt");
+        
+        fs::write(&target, "test").unwrap();
+        symlink(&target, &link).unwrap();
+        
+        // Symlinks should be skipped
+        assert!(should_skip_entry(&link));
     }
 }

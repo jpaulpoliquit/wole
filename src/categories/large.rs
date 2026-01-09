@@ -1,11 +1,11 @@
-use crate::git;
+use crate::config::Config;
 use crate::output::CategoryResult;
-use crate::project;
 use crate::utils;
 use anyhow::{Context, Result};
+use jwalk::WalkDir;
 use std::env;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use std::sync::{Arc, Mutex};
 
 /// Maximum number of results to return
 const MAX_RESULTS: usize = 100;
@@ -15,10 +15,11 @@ const MAX_RESULTS: usize = 100;
 /// Optimizations:
 /// - Uses cached git root lookups (100x faster)
 /// - Skips walking into node_modules, .git, etc. (early bailout)
+/// - Checks config exclusions during traversal (prevents walking excluded trees)
 /// - Sorts by size descending (biggest first)
 /// - Limits to top 100 results
 /// - Detects file types (video, archive, disk image, etc.)
-pub fn scan(_root: &Path, min_size_bytes: u64) -> Result<CategoryResult> {
+pub fn scan(_root: &Path, min_size_bytes: u64, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     
     // Get user directories to scan
@@ -28,7 +29,7 @@ pub fn scan(_root: &Path, min_size_bytes: u64) -> Result<CategoryResult> {
     let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
     
     for dir in user_dirs {
-        scan_directory(&dir, min_size_bytes, &mut files_with_sizes)?;
+        scan_directory(&dir, min_size_bytes, &mut files_with_sizes, config)?;
     }
     
     // Sort by size descending (biggest first)
@@ -64,93 +65,108 @@ fn get_user_directories() -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-/// Scan a directory for large files with optimizations
+
+
+/// Scan a directory for large files with parallel traversal
 fn scan_directory(
     dir: &Path,
     min_size_bytes: u64,
     files: &mut Vec<(PathBuf, u64)>,
+    config: &Config,
 ) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
     
-    // Limit depth to prevent stack overflow, especially on Windows with smaller stack size
     const MAX_DEPTH: usize = 20;
-    for entry in WalkDir::new(dir)
+    
+    // Clone config for thread-safe access (jwalk requires 'static)
+    let config_clone = Arc::new(config.clone());
+    
+    // Use Mutex for thread-safe collection
+    let found_files: Mutex<Vec<(PathBuf, u64)>> = Mutex::new(Vec::new());
+    
+    // Use jwalk for parallel directory traversal
+    WalkDir::new(dir)
         .max_depth(MAX_DEPTH)
         .follow_links(false)
+        .parallelism(jwalk::Parallelism::RayonDefaultPool { busy_timeout: std::time::Duration::from_secs(1) })
+        .process_read_dir(move |_depth, _path, _read_dir_state, children| {
+            // Filter out directories we don't want to descend into
+            children.retain(|entry| {
+                if let Ok(ref e) = entry {
+                    let path = e.path();
+                    
+                    // Skip symlinks
+                    if e.file_type().is_symlink() {
+                        return false;
+                    }
+                    
+                    if e.file_type().is_dir() {
+                        // Skip system/build directories (inline for speed)
+                        if let Some(name) = path.file_name() {
+                            let name_lower = name.to_string_lossy().to_lowercase();
+                            if matches!(name_lower.as_str(),
+                                "node_modules" | ".git" | ".hg" | ".svn" |
+                                "target" | ".gradle" | "__pycache__" |
+                                ".venv" | "venv" | ".next" | ".nuxt" |
+                                "windows" | "program files" | "program files (x86)" |
+                                "$recycle.bin" | "system volume information" |
+                                "appdata" | "programdata"
+                            ) {
+                                return false;
+                            }
+                        }
+                        
+                        // Check user exclusions
+                        if config_clone.is_excluded(&path) {
+                            return false;
+                        }
+                    }
+                }
+                true
+            });
+        })
         .into_iter()
-        .filter_entry(|e| !should_skip_entry(e))  // Early skip optimization
-    {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(e) if e.io_error().map(|io| io.kind() == std::io::ErrorKind::PermissionDenied).unwrap_or(false) => {
-                continue;
+        .filter_map(|e| e.ok())
+        .for_each(|entry| {
+            let path = entry.path();
+            
+            // Check if it's a file
+            if !entry.file_type().is_file() {
+                return;
             }
-            Err(_) => continue,
-        };
-        
-        let path = entry.path();
-        
-        // Check if it's a file and meets size threshold
-        let metadata = match entry.metadata() {
-            Ok(m) if m.is_file() => m,
-            Ok(_) => continue,
-            Err(_) => continue,
-        };
-        
-        // Skip hidden files
-        if utils::is_hidden(path) {
-            continue;
-        }
-        
-        // Check size threshold
-        if metadata.len() < min_size_bytes {
-            continue;
-        }
-        
-        // Skip files in active projects (using CACHED git lookup)
-        if let Some(project_root) = git::find_git_root_cached(path) {
-            if let Ok(true) = project::is_project_active(&project_root, 14) {
-                continue; // Skip active projects
+            
+            // Get metadata and check size
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            
+            // Check size threshold first (fast)
+            if metadata.len() < min_size_bytes {
+                return;
             }
-        }
-        
-        files.push((path.to_path_buf(), metadata.len()));
-    }
+            
+            // Skip hidden files
+            if utils::is_hidden(&path) {
+                return;
+            }
+            
+            // NOTE: Skip is_project_active check during scan for performance
+            // This check is expensive (reads multiple files) and can be done post-scan if needed
+            
+            let mut files_guard = found_files.lock().unwrap();
+            files_guard.push((path, metadata.len()));
+        });
+    
+    // Move collected files to output
+    let mut collected = found_files.into_inner().unwrap();
+    files.append(&mut collected);
     
     Ok(())
 }
 
-/// Check if we should skip walking into this directory
-/// This provides a massive speedup by not descending into known deep directories
-fn should_skip_entry(entry: &walkdir::DirEntry) -> bool {
-    if !entry.file_type().is_dir() {
-        return false;
-    }
-
-    // Avoid Windows junction/reparse-point cycles (common in OneDrive folders).
-    if utils::is_windows_reparse_point(entry.path()) {
-        return true;
-    }
-    
-    if let Some(name) = entry.file_name().to_str() {
-        // Skip these directories entirely - they're either:
-        // 1. System directories we don't want to touch
-        // 2. Build directories that would be caught by --build instead
-        // 3. VCS directories with tons of small files
-        return matches!(name.to_lowercase().as_str(),
-            "node_modules" | ".git" | ".hg" | ".svn" |
-            "target" | ".gradle" | "__pycache__" |
-            ".venv" | "venv" | ".next" | ".nuxt" |
-            "windows" | "program files" | "program files (x86)" |
-            "$recycle.bin" | "system volume information" |
-            "appdata" | "programdata"
-        );
-    }
-    
-    false
-}
 
 /// Get file type for a large file (for display purposes)
 pub fn get_file_type(path: &Path) -> utils::FileType {
