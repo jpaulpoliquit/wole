@@ -19,20 +19,24 @@ if ([string]::IsNullOrEmpty($ARCH)) {
     # Fallback: check if system is 64-bit
     if ([System.Environment]::Is64BitOperatingSystem) {
         # Check if ARM64 (try RuntimeInformation first, fallback to env var)
+        $isArm64 = $false
         try {
+            # Try to use RuntimeInformation if available (.NET Core/.NET 5+ or .NET Framework 4.7.1+)
             $procArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
             if ($procArch -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
-                $ARCH = "arm64"
-            } else {
-                $ARCH = "x86_64"
+                $isArm64 = $true
             }
         } catch {
             # RuntimeInformation not available (older .NET), check env var
             if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") {
-                $ARCH = "arm64"
-            } else {
-                $ARCH = "x86_64"
+                $isArm64 = $true
             }
+        }
+        
+        if ($isArm64) {
+            $ARCH = "arm64"
+        } else {
+            $ARCH = "x86_64"
         }
     } else {
         # 32-bit system
@@ -47,15 +51,23 @@ if ([string]::IsNullOrEmpty($ARCH)) {
     # Check if running on 64-bit OS
     if ([System.Environment]::Is64BitOperatingSystem) {
         # 32-bit process on 64-bit system - check actual architecture
+        $isArm64 = $false
         try {
+            # Try to use RuntimeInformation if available
             $procArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
             if ($procArch -eq [System.Runtime.InteropServices.Architecture]::Arm64) {
-                $ARCH = "arm64"
-            } else {
-                $ARCH = "x86_64"
+                $isArm64 = $true
             }
         } catch {
-            # Fallback: assume x86_64 for 64-bit OS
+            # RuntimeInformation not available, check env var
+            if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") {
+                $isArm64 = $true
+            }
+        }
+        
+        if ($isArm64) {
+            $ARCH = "arm64"
+        } else {
             $ARCH = "x86_64"
         }
     } else {
