@@ -125,29 +125,58 @@ try {
     Write-Host "Installed to $TARGET_PATH" -ForegroundColor Green
     
     # Add to PATH
+    $INSTALL_DIR_NORMALIZED = [System.IO.Path]::GetFullPath($INSTALL_DIR).TrimEnd('\', '/')
     $CURRENT_PATH = [Environment]::GetEnvironmentVariable("Path", "User")
-    $INSTALL_DIR_NORMALIZED = $INSTALL_DIR.TrimEnd('\')
     
-    if ($CURRENT_PATH -notlike "*$INSTALL_DIR_NORMALIZED*") {
+    # Check if already in PATH (case-insensitive, handle trailing slashes)
+    $pathAlreadyAdded = $false
+    if (-not [string]::IsNullOrWhiteSpace($CURRENT_PATH)) {
+        $pathEntries = $CURRENT_PATH -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        foreach ($entry in $pathEntries) {
+            $normalizedEntry = [System.IO.Path]::GetFullPath($entry.Trim()).TrimEnd('\', '/')
+            if ($normalizedEntry -eq $INSTALL_DIR_NORMALIZED) {
+                $pathAlreadyAdded = $true
+                break
+            }
+        }
+    }
+    
+    if (-not $pathAlreadyAdded) {
         Write-Host "Adding to PATH..." -ForegroundColor Gray
         # Add to user PATH (no admin required)
-        $NEW_PATH = "$CURRENT_PATH;$INSTALL_DIR_NORMALIZED"
+        if ([string]::IsNullOrWhiteSpace($CURRENT_PATH)) {
+            $NEW_PATH = $INSTALL_DIR_NORMALIZED
+        } else {
+            $NEW_PATH = "$CURRENT_PATH;$INSTALL_DIR_NORMALIZED"
+        }
         [Environment]::SetEnvironmentVariable("Path", $NEW_PATH, "User")
         Write-Host "Added $INSTALL_DIR_NORMALIZED to user PATH" -ForegroundColor Green
     } else {
         Write-Host "Already in PATH" -ForegroundColor Gray
     }
     
+    # Refresh PATH in current session (handle null/empty values)
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    
+    $newSessionPath = @()
+    if (-not [string]::IsNullOrWhiteSpace($machinePath)) {
+        $newSessionPath += $machinePath
+    }
+    if (-not [string]::IsNullOrWhiteSpace($userPath)) {
+        $newSessionPath += $userPath
+    }
+    
+    if ($newSessionPath.Count -gt 0) {
+        $env:Path = $newSessionPath -join ';'
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:Path)) {
+        # Keep existing PATH if registry is empty (shouldn't happen, but be safe)
+        Write-Warning "Could not refresh PATH from registry, keeping current session PATH"
+    }
+    
     Write-Host ""
     Write-Host "✓ sweeper installed successfully!" -ForegroundColor Green
     Write-Host ""
-    
-    if ($CURRENT_PATH -notlike "*$INSTALL_DIR_NORMALIZED*") {
-        Write-Host "Note: Restart your terminal or run this to use sweeper immediately:" -ForegroundColor Yellow
-        Write-Host ('  $env:Path += ";' + $INSTALL_DIR_NORMALIZED + '"') -ForegroundColor White
-        Write-Host ""
-    }
-    
     Write-Host "Run 'sweeper --help' to get started." -ForegroundColor Cyan
     
 } finally {

@@ -78,22 +78,46 @@ copy /Y "%EXE_PATH%" "%INSTALL_DIR%\sweeper.exe" >nul
 
 echo Installed to %INSTALL_DIR%\sweeper.exe
 
-REM Add to PATH using PowerShell
+REM Add to PATH using PowerShell (with robust path handling)
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); ^
-     $installDir = '%INSTALL_DIR%'; ^
-     if ($currentPath -notlike '*$installDir*') { ^
-         $newPath = $currentPath + ';' + $installDir; ^
+    "$installDir = [System.IO.Path]::GetFullPath('%INSTALL_DIR%').TrimEnd('\', '/'); ^
+     $currentPath = [Environment]::GetEnvironmentVariable('Path', 'User'); ^
+     $pathAlreadyAdded = $false; ^
+     if (-not [string]::IsNullOrWhiteSpace($currentPath)) { ^
+         $pathEntries = $currentPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }; ^
+         foreach ($entry in $pathEntries) { ^
+             $normalizedEntry = [System.IO.Path]::GetFullPath($entry.Trim()).TrimEnd('\', '/'); ^
+             if ($normalizedEntry -eq $installDir) { ^
+                 $pathAlreadyAdded = $true; ^
+                 break; ^
+             } ^
+         } ^
+     }; ^
+     if (-not $pathAlreadyAdded) { ^
+         if ([string]::IsNullOrWhiteSpace($currentPath)) { ^
+             $newPath = $installDir; ^
+         } else { ^
+             $newPath = $currentPath + ';' + $installDir; ^
+         }; ^
          [Environment]::SetEnvironmentVariable('Path', $newPath, 'User'); ^
-         echo Added to user PATH ^
+         Write-Host 'Added to user PATH' -ForegroundColor Green; ^
      } else { ^
-         echo Already in PATH ^
-     }"
+         Write-Host 'Already in PATH' -ForegroundColor Gray; ^
+     }; ^
+     $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine'); ^
+     $userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User'); ^
+     $newSessionPath = @(); ^
+     if (-not [string]::IsNullOrWhiteSpace($machinePath)) { $newSessionPath += $machinePath }; ^
+     if (-not [string]::IsNullOrWhiteSpace($userPath)) { $newSessionPath += $userPath }; ^
+     if ($newSessionPath.Count -gt 0) { $env:Path = $newSessionPath -join ';' }"
+
+REM Refresh PATH in current batch session (for immediate use within this script)
+set PATH=%PATH%;%INSTALL_DIR%
 
 echo.
 echo ✓ sweeper installed successfully!
 echo.
-echo Note: Restart your terminal or run this to use sweeper immediately:
+echo Note: If 'sweeper' is not recognized, restart your terminal or run:
 echo   set PATH=%%PATH%%;%INSTALL_DIR%
 echo.
 echo Run 'sweeper --help' to get started.
