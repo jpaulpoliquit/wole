@@ -137,7 +137,8 @@ fn download_update(asset_url: &str, output_path: &PathBuf) -> Result<()> {
 }
 
 /// Install the update
-fn install_update(zip_path: &PathBuf, output_mode: OutputMode) -> Result<()> {
+/// Returns Ok(true) if update was deferred, Ok(false) if installed immediately
+fn install_update(zip_path: &PathBuf, output_mode: OutputMode) -> Result<bool> {
     let install_dir = uninstall::get_install_dir()?;
 
     // Create install directory if it doesn't exist
@@ -180,47 +181,181 @@ fn install_update(zip_path: &PathBuf, output_mode: OutputMode) -> Result<()> {
     // Find the executable in the extracted folder
     let exe_name = "wole.exe";
     let extracted_exe = extract_dir.join(exe_name);
+    let mut new_exe_path = None;
 
     if !extracted_exe.exists() {
         // Try to find it in a subdirectory
-        let mut found = false;
         for entry in fs::read_dir(&extract_dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 let candidate = entry.path().join(exe_name);
                 if candidate.exists() {
-                    fs::copy(&candidate, install_dir.join(exe_name))
-                        .context("Failed to copy executable")?;
-                    found = true;
+                    new_exe_path = Some(candidate);
                     break;
                 }
             }
         }
 
-        if !found {
+        if new_exe_path.is_none() {
             return Err(anyhow::anyhow!(
                 "Executable not found in downloaded archive"
             ));
         }
     } else {
-        // Copy executable to install directory
-        fs::copy(&extracted_exe, install_dir.join(exe_name))
-            .context("Failed to copy executable")?;
+        new_exe_path = Some(extracted_exe);
     }
 
-    // Clean up temp files
-    let _ = fs::remove_dir_all(&extract_dir);
-    let _ = fs::remove_file(zip_path);
+    let new_exe = new_exe_path.unwrap();
+    let target_exe = install_dir.join(exe_name);
 
-    if output_mode != OutputMode::Quiet {
-        println!(
-            "{} Update installed successfully to {}",
-            Theme::success("OK"),
-            install_dir.display()
+    // On Windows, we need to handle the case where the executable is currently running
+    #[cfg(windows)]
+    {
+        // Try to copy directly first (in case the process isn't running)
+        match fs::copy(&new_exe, &target_exe) {
+            Ok(_) => {
+                // Success! Clean up and return
+                let _ = fs::remove_dir_all(&extract_dir);
+                let _ = fs::remove_file(zip_path);
+
+                if output_mode != OutputMode::Quiet {
+                    println!(
+                        "{} Update installed successfully to {}",
+                        Theme::success("OK"),
+                        install_dir.display()
+                    );
+                }
+                return Ok(false); // Not deferred
+            }
+            Err(e) if e.raw_os_error() == Some(32) => {
+                // File is locked (error 32), need to use deferred update approach
+                // This happens when wole.exe is currently running
+            }
+            Err(e) => {
+                return Err(e).context("Failed to copy executable")?;
+            }
+        }
+
+        // Create a batch script to handle the deferred update
+        let batch_script = env::temp_dir().join("wole-update-deferred.bat");
+        let target_exe_str = target_exe.to_string_lossy().replace('\\', "\\\\");
+        let new_exe_str = new_exe.to_string_lossy().replace('\\', "\\\\");
+        let extract_dir_str = extract_dir.to_string_lossy().replace('\\', "\\\\");
+        let zip_path_str = zip_path.to_string_lossy().replace('\\', "\\\\");
+
+        // Create batch script that waits for the process to exit, then replaces the file
+        // Use a more robust approach: try to copy with retries
+        let batch_content = format!(
+            r#"@echo off
+setlocal enabledelayedexpansion
+set MAX_RETRIES=30
+set RETRY_COUNT=0
+
+REM Wait for wole.exe processes to exit
+:wait_loop
+REM Check if any wole.exe processes are running
+REM tasklist returns 0 if processes found, non-zero if not found
+tasklist /FI "IMAGENAME eq wole.exe" 2>NUL | findstr /I /C:"wole.exe" >NUL 2>&1
+if not errorlevel 1 (
+    REM Process still running, wait and retry
+    set /A RETRY_COUNT+=1
+    if !RETRY_COUNT! GEQ %MAX_RETRIES% (
+        echo Timeout waiting for wole.exe to exit
+        exit /B 1
+    )
+    timeout /t 1 /nobreak >NUL
+    goto wait_loop
+)
+
+REM No processes found, try to copy the new executable (with retry in case of transient locks)
+set RETRY_COUNT=0
+:copy_loop
+copy /Y "{}" "{}" >NUL 2>&1
+if not errorlevel 1 (
+    REM Success! Clean up temp files
+    rmdir /S /Q "{}" >NUL 2>&1
+    del /F /Q "{}" >NUL 2>&1
+    REM Delete this batch script itself
+    (goto) 2>NUL & del "%~f0"
+    exit /B 0
+) else (
+    REM Copy failed, retry
+    set /A RETRY_COUNT+=1
+    if !RETRY_COUNT! GEQ 5 (
+        echo Failed to copy executable after retries
+        exit /B 1
+    )
+    timeout /t 1 /nobreak >NUL
+    goto copy_loop
+)
+"#,
+            new_exe_str, target_exe_str, extract_dir_str, zip_path_str
         );
+
+        fs::write(&batch_script, batch_content).context("Failed to create update batch script")?;
+
+        // Execute the batch script in a detached process
+        // Use PowerShell to start it in the background without a window
+        // Properly escape the batch script path for PowerShell
+        let batch_path_escaped = batch_script
+            .to_string_lossy()
+            .replace('\\', "\\\\")
+            .replace('"', "`\"");
+
+        let ps_start_script = format!(
+            r#"
+            $psi = New-Object System.Diagnostics.ProcessStartInfo;
+            $psi.FileName = 'cmd.exe';
+            $psi.Arguments = '/C "{}"';
+            $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden;
+            $psi.CreateNoWindow = $true;
+            $psi.UseShellExecute = $false;
+            [System.Diagnostics.Process]::Start($psi) | Out-Null
+            "#,
+            batch_path_escaped
+        );
+
+        Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &ps_start_script,
+            ])
+            .output()
+            .context("Failed to start deferred update script")?;
+
+        if output_mode != OutputMode::Quiet {
+            println!(
+                "{} Update will be installed automatically after wole exits.",
+                Theme::success("OK")
+            );
+            println!("   The new version will be available the next time you run wole.");
+        }
+
+        Ok(true) // Update was deferred
     }
 
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        // On non-Windows systems, direct copy should work
+        fs::copy(&new_exe, &target_exe).context("Failed to copy executable")?;
+
+        // Clean up temp files
+        let _ = fs::remove_dir_all(&extract_dir);
+        let _ = fs::remove_file(zip_path);
+
+        if output_mode != OutputMode::Quiet {
+            println!(
+                "{} Update installed successfully to {}",
+                Theme::success("OK"),
+                install_dir.display()
+            );
+        }
+
+        Ok(false) // Not deferred
+    }
 }
 
 /// Check for updates and optionally install
@@ -303,9 +438,9 @@ pub fn check_and_update(yes: bool, check_only: bool, output_mode: OutputMode) ->
                 println!("{} Installing update...", Theme::primary("Installing"));
             }
 
-            install_update(&zip_path, output_mode)?;
+            let update_deferred = install_update(&zip_path, output_mode)?;
 
-            if output_mode != OutputMode::Quiet {
+            if !update_deferred && output_mode != OutputMode::Quiet {
                 println!(
                     "{} Update complete! Restart your terminal to use the new version.",
                     Theme::success("OK")

@@ -65,6 +65,8 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     }
 
     // Scan Windows Update cache (requires admin, gracefully skip if denied)
+    // Note: This path contains "Windows" so is_system_path() will block deletion for safety
+    // We scan it but deletion will fail gracefully with a clear error message
     let windows_update_path = PathBuf::from("C:\\Windows\\SoftwareDistribution\\Download");
     if windows_update_path.exists() && !config.is_excluded(&windows_update_path) {
         match utils::calculate_dir_size(&windows_update_path) {
@@ -98,6 +100,15 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
 
 /// Clean (delete) a system cache file/directory by moving it to the Recycle Bin
 pub fn clean(path: &Path) -> Result<()> {
+    // CRITICAL SAFETY CHECK: Never allow deletion of system paths
+    // Windows Update cache requires admin and should be skipped gracefully
+    if crate::utils::is_system_path(path) {
+        return Err(anyhow::anyhow!(
+            "Cannot delete system path: {}. System directories are protected from deletion.",
+            path.display()
+        ));
+    }
+
     trash::delete(path)
         .with_context(|| format!("Failed to delete system cache: {}", path.display()))?;
     Ok(())

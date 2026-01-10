@@ -16,6 +16,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::stdout;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use self::events::{handle_event, handle_mouse_event};
@@ -635,6 +636,10 @@ fn perform_cleanup(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
 ) -> anyhow::Result<(u64, u64, usize)> {
     use crate::categories;
+    use crate::history::DeletionLog;
+
+    // Create deletion log for audit trail
+    let mut history = DeletionLog::new();
 
     // Collect all items to clean with their categories
     // Separate trash items since they're cleaned all at once
@@ -673,10 +678,25 @@ fn perform_cleanup(
             Ok(()) => {
                 // All trash items are cleaned
                 trash_cleaned = trash_items.len() as u64;
+                // Log trash cleanup success
+                history.log_success(
+                    std::path::Path::new("Recycle Bin"),
+                    trash_total_bytes,
+                    "trash",
+                    true,
+                );
             }
-            Err(_e) => {
+            Err(e) => {
                 // If trash cleaning fails, all trash items failed
                 trash_errors = trash_items.len();
+                // Log trash cleanup failure
+                history.log_failure(
+                    std::path::Path::new("Recycle Bin"),
+                    trash_total_bytes,
+                    "trash",
+                    true,
+                    &e.to_string(),
+                );
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -736,9 +756,21 @@ fn perform_cleanup(
                 Ok(()) => {
                     cleaned += 1;
                     cleaned_bytes += size_bytes;
+                    // Log success
+                    let category_lower = category.to_lowercase();
+                    history.log_success(&path, size_bytes, &category_lower, permanent);
                 }
-                Err(_) => {
+                Err(e) => {
                     errors += 1;
+                    // Log failure
+                    let category_lower = category.to_lowercase();
+                    history.log_failure(
+                        &path,
+                        size_bytes,
+                        &category_lower,
+                        permanent,
+                        &e.to_string(),
+                    );
                 }
             }
         }
@@ -767,12 +799,52 @@ fn perform_cleanup(
         let paths: Vec<std::path::PathBuf> =
             batch_items.iter().map(|(_, p, _)| p.clone()).collect();
 
+        // Calculate sizes BEFORE deletion (critical for accurate logging)
+        use std::collections::HashMap;
+        let mut path_sizes: HashMap<PathBuf, u64> = HashMap::new();
+        for (_, path, size) in &batch_items {
+            path_sizes.insert(path.clone(), *size);
+        }
+
         // Use the new batch deletion function (10-50x faster!)
-        let (batch_success, batch_errors, _deleted_paths) =
+        let (batch_success, batch_errors, deleted_paths) =
             cleaner::clean_paths_batch(&paths, permanent);
 
         cleaned += batch_success as u64;
         errors += batch_errors;
+
+        // Log batch deletion results
+        // Create a map of path -> category for efficient lookup
+        let mut path_to_category: HashMap<PathBuf, String> = HashMap::new();
+        for (_, path, _) in &batch_items {
+            if let Some(item) = app_state.all_items.iter().find(|i| i.path == *path) {
+                path_to_category.insert(path.clone(), item.category.to_lowercase());
+            }
+        }
+
+        // Log successes
+        for path in &deleted_paths {
+            if let Some(size) = path_sizes.get(path) {
+                let category = path_to_category
+                    .get(path)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string());
+                history.log_success(path, *size, &category, permanent);
+            }
+        }
+
+        // Log failures (paths that weren't deleted)
+        for path in &paths {
+            if !deleted_paths.contains(path) {
+                if let Some(size) = path_sizes.get(path) {
+                    let category = path_to_category
+                        .get(path)
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    history.log_failure(path, *size, &category, permanent, "Batch deletion failed");
+                }
+            }
+        }
 
         // Estimate cleaned bytes based on success ratio
         if batch_success > 0 {
@@ -810,6 +882,14 @@ fn perform_cleanup(
 
     // Rebuild groups from remaining items so navigation back to Results works
     app_state.rebuild_groups_from_all_items();
+
+    // Save deletion history log
+    if let Err(e) = history.save() {
+        // Log error but don't fail the cleanup operation
+        // In production, this is silently ignored to avoid disrupting the UI
+        #[cfg(debug_assertions)]
+        eprintln!("[DEBUG] Failed to save deletion log: {}", e);
+    }
 
     Ok((cleaned, cleaned_bytes, errors))
 }

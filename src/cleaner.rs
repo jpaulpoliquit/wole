@@ -95,6 +95,7 @@ fn batch_clean_category_internal(
     // Calculate sizes BEFORE deletion (critical for accurate logging)
     // Once files are deleted, we can't get their sizes anymore
     let mut path_sizes: HashMap<PathBuf, u64> = HashMap::new();
+    // Always calculate sizes if history logging is enabled
     if history.is_some() {
         for path in paths {
             let size = if path.is_dir() {
