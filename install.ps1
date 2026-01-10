@@ -5,6 +5,51 @@ $ErrorActionPreference = "Stop"
 
 $REPO = "jpaulpoliquit/wole"
 
+# Function to download file with progress
+function Download-FileWithProgress {
+    param(
+        [string]$Url,
+        [string]$OutputPath,
+        [string]$Description = "Downloading"
+    )
+    
+    Write-Host "$Description..." -ForegroundColor Cyan
+    
+    try {
+        $webClient = New-Object System.Net.WebClient
+        $webClient.DownloadProgressChanged += {
+            $percent = $_.ProgressPercentage
+            $downloaded = $_.BytesReceived
+            $total = $_.TotalBytesToReceive
+            $downloadedMB = [math]::Round($downloaded / 1MB, 2)
+            $totalMB = [math]::Round($total / 1MB, 2)
+            
+            $status = "  [$percent%] $downloadedMB MB / $totalMB MB"
+            Write-Host "`r$status" -NoNewline -ForegroundColor Gray
+        }
+        $webClient.DownloadFileCompleted += {
+            Write-Host ""
+        }
+        $webClient.DownloadFile($Url, $OutputPath)
+        Write-Host "✓ Download complete" -ForegroundColor Green
+        return $true
+    } catch {
+        # Fallback to Invoke-WebRequest
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $OutputPath -UseBasicParsing
+            Write-Host "✓ Download complete" -ForegroundColor Green
+            return $true
+        } catch {
+            Write-Host "✗ Download failed: $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
+    } finally {
+        if ($webClient) {
+            $webClient.Dispose()
+        }
+    }
+}
+
 # Detect architecture
 # Check PROCESSOR_ARCHITECTURE environment variable first
 $ARCH = $env:PROCESSOR_ARCHITECTURE
@@ -91,8 +136,11 @@ New-Item -ItemType Directory -Force -Path $TEMP_DIR | Out-Null
 try {
     # Download the release
     $ZIP_PATH = Join-Path $TEMP_DIR "wole.zip"
-    Write-Host "Downloading from $URL..." -ForegroundColor Gray
-    Invoke-WebRequest -Uri $URL -OutFile $ZIP_PATH -UseBasicParsing
+    $downloadSuccess = Download-FileWithProgress -Url $URL -OutputPath $ZIP_PATH -Description "Downloading wole"
+    if (-not $downloadSuccess) {
+        Write-Error "Failed to download wole"
+        exit 1
+    }
     
     # Extract
     Write-Host "Extracting..." -ForegroundColor Gray
@@ -322,8 +370,10 @@ try {
             $vcRedistPath = Join-Path $TEMP_DIR "vc_redist.${vcArchKey}.exe"
 
             try {
-                Write-Host "Downloading VC++ Runtime from $vcRedistUrl..." -ForegroundColor Gray
-                Invoke-WebRequest -Uri $vcRedistUrl -OutFile $vcRedistPath -UseBasicParsing
+                $downloadSuccess = Download-FileWithProgress -Url $vcRedistUrl -OutputPath $vcRedistPath -Description "Downloading VC++ Runtime"
+                if (-not $downloadSuccess) {
+                    throw "Failed to download VC++ Runtime"
+                }
 
                 # Silent install; will trigger UAC if needed
                 Write-Host "Installing VC++ Runtime (may prompt for admin approval)..." -ForegroundColor Gray
