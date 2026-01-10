@@ -214,14 +214,20 @@ try {
     $exeExists = Test-Path $TARGET_PATH
     $pathContainsDir = $env:Path -split ';' | Where-Object { 
         $entry = $_
-        if ([string]::IsNullOrWhiteSpace($entry)) {
+        if ($null -eq $entry -or -not ($entry -is [string]) -or [string]::IsNullOrWhiteSpace($entry)) {
             return $false
         }
         try {
-            $normalized = [System.IO.Path]::GetFullPath($entry.Trim()).TrimEnd('\', '/')
+            $trimmedEntry = $entry.Trim()
+            $normalized = [System.IO.Path]::GetFullPath($trimmedEntry).TrimEnd('\', '/')
             $normalized -eq $INSTALL_DIR_NORMALIZED
         } catch {
-            $entry.Trim().TrimEnd('\', '/') -eq $INSTALL_DIR_NORMALIZED
+            try {
+                $trimmedEntry = $entry.Trim()
+                $trimmedEntry.TrimEnd('\', '/') -eq $INSTALL_DIR_NORMALIZED
+            } catch {
+                $false
+            }
         }
     } | Select-Object -First 1
     
