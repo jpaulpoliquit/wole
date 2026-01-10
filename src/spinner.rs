@@ -19,7 +19,7 @@ pub const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", 
 ///
 /// # Example
 /// ```
-/// use crate::spinner::get_spinner;
+/// use wole::spinner::get_spinner;
 ///
 /// let frame0 = get_spinner(0);  // "⠋"
 /// let frame1 = get_spinner(2);  // "⠙" (tick/2 for slower animation)
