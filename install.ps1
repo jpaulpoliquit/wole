@@ -135,13 +135,17 @@ try {
     # Check if already in PATH (case-insensitive, handle trailing slashes)
     $pathAlreadyAdded = $false
     if (-not [string]::IsNullOrWhiteSpace($CURRENT_PATH)) {
-        $pathEntries = $CURRENT_PATH -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $pathEntries = $CURRENT_PATH -split ';'
         foreach ($entry in $pathEntries) {
+            $entryStr = [string]$entry
+            if ([string]::IsNullOrWhiteSpace($entryStr)) {
+                continue
+            }
             try {
-                $normalizedEntry = [System.IO.Path]::GetFullPath($entry.Trim()).TrimEnd('\', '/')
+                $normalizedEntry = [System.IO.Path]::GetFullPath($entryStr.Trim()).TrimEnd('\', '/')
             } catch {
                 # If GetFullPath fails (e.g., contains env vars), do simple comparison
-                $normalizedEntry = $entry.Trim().TrimEnd('\', '/')
+                $normalizedEntry = $entryStr.Trim().TrimEnd('\', '/')
             }
             if ($normalizedEntry -eq $INSTALL_DIR_NORMALIZED) {
                 $pathAlreadyAdded = $true
@@ -186,13 +190,17 @@ try {
     $inSessionPath = $false
     
     if (-not [string]::IsNullOrWhiteSpace($currentSessionPath)) {
-        $sessionPathEntries = $currentSessionPath -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        $sessionPathEntries = $currentSessionPath -split ';'
         foreach ($entry in $sessionPathEntries) {
+            $entryStr = [string]$entry
+            if ([string]::IsNullOrWhiteSpace($entryStr)) {
+                continue
+            }
             try {
-                $normalizedEntry = [System.IO.Path]::GetFullPath($entry.Trim()).TrimEnd('\', '/')
+                $normalizedEntry = [System.IO.Path]::GetFullPath($entryStr.Trim()).TrimEnd('\', '/')
             } catch {
                 # If GetFullPath fails (e.g., contains env vars), do simple comparison
-                $normalizedEntry = $entry.Trim().TrimEnd('\', '/')
+                $normalizedEntry = $entryStr.Trim().TrimEnd('\', '/')
             }
             if ($normalizedEntry -eq $INSTALL_DIR_NORMALIZED) {
                 $inSessionPath = $true
