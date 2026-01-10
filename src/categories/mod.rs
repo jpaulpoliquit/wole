@@ -1,4 +1,5 @@
 pub mod app_cache;
+pub mod applications;
 pub mod browser;
 pub mod build;
 pub mod cache;

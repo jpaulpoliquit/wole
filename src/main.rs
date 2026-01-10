@@ -12,5 +12,8 @@ fn main() -> Result<()> {
     }
 
     let cli = Cli::parse();
+    
+    // If command is None, it means --version or --help was used, or no command
+    // Clap handles --version and --help automatically, so we just run
     cli.run()
 }

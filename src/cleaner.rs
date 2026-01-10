@@ -551,6 +551,22 @@ pub fn clean_all(
         cleaned_bytes += results.duplicates.size_bytes;
     }
 
+    // Clean installed applications (batch)
+    if results.applications.items > 0 {
+        let (success, errs) = batch_clean_category_internal(
+            &results.applications.paths,
+            "applications",
+            permanent,
+            dry_run,
+            progress.as_ref(),
+            history.as_mut(),
+            mode,
+        );
+        cleaned += success;
+        errors += errs;
+        cleaned_bytes += results.applications.size_bytes;
+    }
+
     // Finish progress bar
     if let Some(pb) = progress {
         pb.finish_and_clear();

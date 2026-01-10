@@ -69,6 +69,10 @@ pub fn scan_all(
         enabled.push(("duplicates", ScanTask::Duplicates));
     }
 
+    if options.applications {
+        enabled.push(("applications", ScanTask::Applications));
+    }
+
     let total_categories = enabled.len();
 
     if total_categories == 0 {
@@ -151,6 +155,7 @@ pub fn scan_all(
                         Err(e) => Err(e),
                     }
                 }
+                ScanTask::Applications => categories::applications::scan(&path_owned, config, mode),
             };
 
             (*name, result)
@@ -181,6 +186,7 @@ pub fn scan_all(
                 // Store duplicate groups for enhanced display
                 results.duplicates_groups = duplicate_groups.borrow().clone();
             },
+            ("applications", Ok(r)) => results.applications = r,
             (name, Err(e)) => {
                 if mode != OutputMode::Quiet {
                     eprintln!("[WARNING] {} scan failed: {}", name, e);
@@ -214,6 +220,7 @@ enum ScanTask {
     System,
     Empty,
     Duplicates,
+    Applications,
 }
 
 /// Filter out paths matching exclusion patterns
@@ -284,6 +291,10 @@ fn filter_exclusions(results: &mut ScanResults, config: &Config) {
         &mut results.duplicates.paths,
         &mut results.duplicates.size_bytes,
     );
+    filter_and_recalculate(
+        &mut results.applications.paths,
+        &mut results.applications.size_bytes,
+    );
 
     // Recalculate item counts after filtering
     results.cache.items = results.cache.paths.len();
@@ -298,6 +309,7 @@ fn filter_exclusions(results: &mut ScanResults, config: &Config) {
     results.system.items = results.system.paths.len();
     results.empty.items = results.empty.paths.len();
     results.duplicates.items = results.duplicates.paths.len();
+    results.applications.items = results.applications.paths.len();
 }
 
 /// Calculate total size of paths (files only - not used for directories)

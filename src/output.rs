@@ -25,6 +25,7 @@ pub struct ScanResults {
     pub downloads: CategoryResult,
     pub large: CategoryResult,
     pub old: CategoryResult,
+    pub applications: CategoryResult,
     pub browser: CategoryResult,
     pub system: CategoryResult,
     pub empty: CategoryResult,
@@ -64,6 +65,7 @@ struct JsonCategories {
     downloads: JsonCategory,
     large: JsonCategory,
     old: JsonCategory,
+    applications: JsonCategory,
     browser: JsonCategory,
     system: JsonCategory,
     empty: JsonCategory,
@@ -120,6 +122,7 @@ pub fn print_human_with_options(results: &ScanResults, mode: OutputMode, options
         ("Downloads", &results.downloads, "[OK] Old files"),
         ("Large", &results.large, "[!] Review suggested"),
         ("Old", &results.old, "[!] Review suggested"),
+        ("Applications", &results.applications, "[!] Review suggested"),
         ("Browser", &results.browser, "[OK] Safe to clean"),
         ("System", &results.system, "[OK] Safe to clean"),
         ("Empty", &results.empty, "[OK] Safe to clean"),
@@ -224,6 +227,7 @@ pub fn print_human_with_options(results: &ScanResults, mode: OutputMode, options
         + results.downloads.items
         + results.large.items
         + results.old.items
+        + results.applications.items
         + results.browser.items
         + results.system.items
         + results.empty.items
@@ -236,6 +240,7 @@ pub fn print_human_with_options(results: &ScanResults, mode: OutputMode, options
         + results.downloads.size_bytes
         + results.large.size_bytes
         + results.old.size_bytes
+        + results.applications.size_bytes
         + results.browser.size_bytes
         + results.system.size_bytes
         + results.empty.size_bytes
@@ -282,6 +287,7 @@ fn build_clean_command(options: Option<&ScanOptions>) -> String {
         opts.downloads,
         opts.large,
         opts.old,
+        opts.applications,
         opts.browser,
         opts.system,
         opts.empty,
@@ -292,7 +298,7 @@ fn build_clean_command(options: Option<&ScanOptions>) -> String {
     .count();
 
     // If all categories are enabled, use --all
-    if enabled_count == 12 {
+    if enabled_count == 13 {
         return "wole clean --all".to_string();
     }
 
@@ -321,6 +327,9 @@ fn build_clean_command(options: Option<&ScanOptions>) -> String {
     }
     if opts.old {
         flags.push("--old");
+    }
+    if opts.applications {
+        flags.push("--applications");
     }
     if opts.browser {
         flags.push("--browser");
@@ -436,6 +445,17 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                     .map(|p| p.to_string_lossy().to_string())
                     .collect(),
             },
+            applications: JsonCategory {
+                items: results.applications.items,
+                size_bytes: results.applications.size_bytes,
+                size_human: results.applications.size_human(),
+                paths: results
+                    .applications
+                    .paths
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect(),
+            },
             browser: JsonCategory {
                 items: results.browser.items,
                 size_bytes: results.browser.size_bytes,
@@ -490,6 +510,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 + results.downloads.items
                 + results.large.items
                 + results.old.items
+                + results.applications.items
                 + results.browser.items
                 + results.system.items
                 + results.empty.items
@@ -502,6 +523,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                 + results.downloads.size_bytes
                 + results.large.size_bytes
                 + results.old.size_bytes
+                + results.applications.size_bytes
                 + results.browser.size_bytes
                 + results.system.size_bytes
                 + results.empty.size_bytes
@@ -515,6 +537,7 @@ pub fn print_json(results: &ScanResults) -> anyhow::Result<()> {
                     + results.downloads.size_bytes
                     + results.large.size_bytes
                     + results.old.size_bytes
+                    + results.applications.size_bytes
                     + results.browser.size_bytes
                     + results.system.size_bytes
                     + results.empty.size_bytes
@@ -546,6 +569,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         ("Old Downloads", &results.downloads),
         ("Duplicates", &results.duplicates),
         ("Old Files", &results.old),
+        ("Applications", &results.applications),
         ("Temp Files", &results.temp),
         ("Package Cache", &results.cache),
         ("Application Cache", &results.app_cache),
@@ -647,6 +671,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.downloads.items
         + results.large.items
         + results.old.items
+        + results.applications.items
         + results.browser.items
         + results.system.items
         + results.empty.items
@@ -659,6 +684,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.downloads.size_bytes
         + results.large.size_bytes
         + results.old.size_bytes
+        + results.applications.size_bytes
         + results.browser.size_bytes
         + results.system.size_bytes
         + results.empty.size_bytes

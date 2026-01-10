@@ -14,7 +14,6 @@
 
 use std::env;
 use std::fs;
-use std::io;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -597,7 +596,7 @@ pub fn run_optimizations(
     search: bool,
     explorer: bool,
     dry_run: bool,
-    yes: bool,
+    _yes: bool,
     output_mode: OutputMode,
 ) -> Vec<OptimizeResult> {
     let mut results = Vec::new();

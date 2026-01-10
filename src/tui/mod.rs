@@ -423,6 +423,7 @@ fn perform_scan_with_progress(
     let mut downloads = false;
     let mut large = false;
     let mut old = false;
+    let mut applications = false;
     let mut browser = false;
     let mut system = false;
     let mut empty = false;
@@ -438,6 +439,7 @@ fn perform_scan_with_progress(
             "Downloads" => downloads = cat.enabled,
             "Large" => large = cat.enabled,
             "Old" => old = cat.enabled,
+            "Applications" => applications = cat.enabled,
             "Browser" => browser = cat.enabled,
             "System" => system = cat.enabled,
             "Empty" => empty = cat.enabled,
@@ -461,6 +463,7 @@ fn perform_scan_with_progress(
         downloads,
         large,
         old,
+        applications,
         browser,
         system,
         empty,

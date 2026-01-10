@@ -24,6 +24,7 @@ pub enum Category {
     System,
     Empty,
     Duplicates,
+    Applications,
 }
 
 impl Category {
@@ -41,6 +42,7 @@ impl Category {
             Category::System => "System Cache",
             Category::Empty => "Empty Folders",
             Category::Duplicates => "Duplicates",
+            Category::Applications => "Installed Applications",
         }
     }
 }
@@ -166,6 +168,10 @@ pub fn run_scan(path: &Path, options: &ScanOptions, config: &Config) -> Result<S
 
     if options.duplicates {
         scanners.push(Box::new(DuplicatesScannerAdapter));
+    }
+
+    if options.applications {
+        scanners.push(Box::new(ApplicationsScannerAdapter));
     }
 
     if scanners.is_empty() {
@@ -717,6 +723,33 @@ impl Scanner for DuplicatesScannerAdapter {
             category_result,
             Category::Duplicates,
             "Duplicate files",
+            config,
+        ))
+    }
+}
+
+struct ApplicationsScannerAdapter;
+impl Scanner for ApplicationsScannerAdapter {
+    fn name(&self) -> &'static str {
+        "Applications Scanner"
+    }
+
+    fn category(&self) -> Category {
+        Category::Applications
+    }
+
+    fn scan(
+        &self,
+        _path: &Path,
+        _options: &ScanOptions,
+        config: &Config,
+    ) -> Result<Vec<CleanableFile>> {
+        use crate::categories::applications;
+        let result = applications::scan(std::path::Path::new(""), config, OutputMode::Normal)?;
+        Ok(convert_category_result(
+            result,
+            Category::Applications,
+            "Installed application",
             config,
         ))
     }
