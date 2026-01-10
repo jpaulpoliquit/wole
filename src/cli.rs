@@ -1423,13 +1423,18 @@ impl Cli {
                 dry_run,
                 yes,
             } => {
-                // Check if no options specified
-                if !all && !dns && !thumbnails && !icons && !databases && !fonts 
+                // If no options specified, default to --all
+                let all = if !all && !dns && !thumbnails && !icons && !databases && !fonts 
                     && !memory && !network && !bluetooth && !search && !explorer {
-                    eprintln!("No optimizations specified. Use --all or specify individual options.");
-                    eprintln!("Run 'wole optimize --help' for more information.");
-                    return Ok(());
-                }
+                    if output_mode != OutputMode::Quiet {
+                        println!();
+                        println!("{}", Theme::primary("No options specified, running all available optimizations..."));
+                        println!();
+                    }
+                    true
+                } else {
+                    all
+                };
 
                 if output_mode != OutputMode::Quiet {
                     println!();

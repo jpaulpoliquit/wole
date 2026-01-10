@@ -607,40 +607,30 @@ pub fn run_optimizations(
     let run_thumbnails = all || thumbnails;
     let run_icons = all || icons;
     let run_databases = all || databases;
-    let run_fonts = all || fonts;
-    let run_memory = all || memory;
-    let run_network = all || network;
-    let run_bluetooth = all || bluetooth;
-    let run_search = all || search;
+    let mut run_fonts = all || fonts;
+    let mut run_memory = all || memory;
+    let mut run_network = all || network;
+    let mut run_bluetooth = all || bluetooth;
+    let mut run_search = all || search;
     let run_explorer = all || explorer;
 
     // Check if any admin operations are requested
     let needs_admin = run_fonts || run_memory || run_network || run_bluetooth || run_search;
+    let is_admin_user = is_admin();
     
-    // If admin operations are needed and we're not running as admin, warn the user
-    if needs_admin && !is_admin() && !dry_run {
+    // If admin operations are needed and we're not running as admin, skip them automatically
+    if needs_admin && !is_admin_user && !dry_run {
         if output_mode != OutputMode::Quiet {
             println!();
-            println!("{}", Theme::warning("Note: Some operations require administrator privileges."));
-            println!("{}", Theme::muted("Run as Administrator for full optimization."));
+            println!("{}", Theme::warning("Running non-admin optimizations only (not running as Administrator)."));
             println!();
         }
-    }
-
-    // Warn about network reset (can disconnect)
-    if run_network && !dry_run && !yes {
-        if output_mode != OutputMode::Quiet {
-            println!("{}", Theme::warning("Warning: Network reset will temporarily disconnect your network."));
-            print!("Continue? [y/N]: ");
-            io::Write::flush(&mut io::stdout()).ok();
-            
-            let mut input = String::new();
-            if io::stdin().read_line(&mut input).is_err() || !input.trim().eq_ignore_ascii_case("y") {
-                results.push(OptimizeResult::skipped("Reset Network Stack", "User cancelled", true));
-                // Don't run network reset, but continue with others
-                // We'll set a flag to skip it
-            }
-        }
+        // Skip admin operations if not running as admin
+        run_fonts = false;
+        run_memory = false;
+        run_network = false;
+        run_bluetooth = false;
+        run_search = false;
     }
 
     // Run non-admin operations first
@@ -721,6 +711,47 @@ pub fn run_optimizations(
         results.push(result);
     }
 
+    // If we skipped admin operations, show helpful message
+    if needs_admin && !is_admin_user && !dry_run && output_mode != OutputMode::Quiet {
+        let skipped_flags: Vec<&str> = [
+            (all || fonts, "--fonts"),
+            (all || memory, "--memory"),
+            (all || network, "--network"),
+            (all || bluetooth, "--bluetooth"),
+            (all || search, "--search"),
+        ]
+        .iter()
+        .filter(|(requested, _)| *requested)
+        .map(|(_, flag)| *flag)
+        .collect();
+        
+        if !skipped_flags.is_empty() {
+            println!();
+            println!("{}", Theme::divider(60));
+            println!();
+            println!("{}", Theme::warning("Skipped admin-required optimizations:"));
+            for flag in &skipped_flags {
+                println!("  • {}", Theme::muted(flag));
+            }
+            println!();
+            println!("{}", Theme::primary("To run these, restart as Administrator:"));
+            
+            // Build the command with specific flags
+            let flags_arg = if all {
+                "--all".to_string()
+            } else {
+                skipped_flags.join("','")
+            };
+            
+            println!("  {}", Theme::command(&format!(
+                "Start-Process wole -ArgumentList 'optimize','{}' -Verb RunAs",
+                flags_arg
+            )));
+            println!();
+            println!("{}", Theme::muted("(Run the above command in PowerShell)"));
+        }
+    }
+    
     results
 }
 

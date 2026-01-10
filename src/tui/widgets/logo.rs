@@ -5,7 +5,6 @@
 use crate::tui::theme::Styles;
 use ratatui::{
     layout::{Alignment, Rect},
-    style::Modifier,
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
