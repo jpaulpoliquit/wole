@@ -1,10 +1,111 @@
 use anyhow::{Context, Result};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::output::OutputMode;
 use crate::theme::Theme;
+
+/// Check if a path points to the currently running executable
+#[cfg(windows)]
+fn is_current_executable(path: &Path) -> bool {
+    if let Ok(current_exe) = env::current_exe() {
+        // Normalize both paths for comparison
+        let current_exe_normalized = current_exe
+            .canonicalize()
+            .unwrap_or(current_exe)
+            .to_string_lossy()
+            .to_lowercase()
+            .replace('/', "\\");
+        let target_normalized = path
+            .canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .to_lowercase()
+            .replace('/', "\\");
+        current_exe_normalized == target_normalized
+    } else {
+        false
+    }
+}
+
+#[cfg(not(windows))]
+fn is_current_executable(_path: &Path) -> bool {
+    false
+}
+
+/// Schedule a file for deletion on Windows reboot
+#[cfg(windows)]
+fn schedule_delete_on_reboot(path: &Path) -> Result<()> {
+    use std::process::Command;
+
+    // Use PowerShell to schedule deletion on reboot using MoveFileEx
+    let path_str = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "`\"");
+
+    let ps_script = format!(
+        r#"
+        $file = [System.IO.Path]::GetFullPath('{}');
+        if ([System.IO.File]::Exists($file)) {{
+            try {{
+                # Use MoveFileEx with MOVEFILE_DELAY_UNTIL_REBOOT flag
+                Add-Type -TypeDefinition @"
+                    using System;
+                    using System.Runtime.InteropServices;
+                    public class Win32 {{
+                        [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Auto)]
+                        public static extern bool MoveFileEx(string lpExistingFileName, string lpNewFileName, int dwFlags);
+                        public const int MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
+                    }}
+"@
+                $result = [Win32]::MoveFileEx($file, $null, [Win32]::MOVEFILE_DELAY_UNTIL_REBOOT);
+                if ($result) {{
+                    Write-Host 'Scheduled for deletion on reboot' -ForegroundColor Green;
+                }} else {{
+                    $errorCode = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error();
+                    Write-Host "Failed to schedule deletion: Error $errorCode" -ForegroundColor Red;
+                    exit 1;
+                }}
+            }} catch {{
+                Write-Host "Error: $_" -ForegroundColor Red;
+                exit 1;
+            }}
+        }} else {{
+            Write-Host 'File does not exist' -ForegroundColor Yellow;
+        }}
+        "#,
+        path_str
+    );
+
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &ps_script,
+        ])
+        .output()
+        .context("Failed to execute PowerShell to schedule deletion")?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let error = String::from_utf8_lossy(&output.stderr);
+        Err(anyhow::anyhow!(
+            "Failed to schedule deletion on reboot: {}",
+            error
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn schedule_delete_on_reboot(_path: &Path) -> Result<()> {
+    // Not needed on non-Windows systems
+    Ok(())
+}
 
 /// Get the installation directory where wole.exe is located
 pub fn get_install_dir() -> Result<PathBuf> {
@@ -135,21 +236,102 @@ pub fn uninstall(remove_config: bool, remove_data: bool, output_mode: OutputMode
             println!("  Executable: {}", exe_path.display());
         }
 
-        // Remove executable
-        fs::remove_file(&exe_path)
-            .with_context(|| format!("Failed to remove executable: {}", exe_path.display()))?;
+        // Track if we scheduled deletion for reboot (so we don't try to remove bin directory)
+        let mut scheduled_for_reboot = false;
 
-        // Clear spinner
-        if let Some(sp) = spinner {
-            crate::progress::finish_and_clear(&sp);
+        // Check if we're trying to delete the currently running executable
+        if is_current_executable(&exe_path) {
+            // Can't delete ourselves while running - schedule for deletion on reboot
+            if output_mode != OutputMode::Quiet {
+                println!(
+                    "{} Executable is currently running, scheduling for deletion on reboot...",
+                    Theme::warning("Note")
+                );
+            }
+
+            schedule_delete_on_reboot(&exe_path).with_context(|| {
+                format!(
+                    "Failed to schedule executable for deletion: {}",
+                    exe_path.display()
+                )
+            })?;
+
+            scheduled_for_reboot = true;
+
+            // Clear spinner
+            if let Some(sp) = spinner {
+                crate::progress::finish_and_clear(&sp);
+            }
+
+            if output_mode != OutputMode::Quiet {
+                println!(
+                    "{} Executable will be deleted on next reboot",
+                    Theme::success("OK")
+                );
+                println!(
+                    "   You can safely close this window and restart your computer to complete the uninstall."
+                );
+            }
+        } else {
+            // Not the current executable, can delete directly
+            // Remove executable
+            match fs::remove_file(&exe_path) {
+                Ok(_) => {
+                    // Clear spinner
+                    if let Some(sp) = spinner {
+                        crate::progress::finish_and_clear(&sp);
+                    }
+
+                    if output_mode != OutputMode::Quiet {
+                        println!("{} Removed executable", Theme::success("OK"));
+                    }
+                }
+                Err(e) => {
+                    // If deletion fails with "access denied", it might be locked
+                    // Try scheduling for reboot deletion as fallback
+                    if e.kind() == std::io::ErrorKind::PermissionDenied
+                        || e.raw_os_error() == Some(5)
+                    // ERROR_ACCESS_DENIED
+                    {
+                        if output_mode != OutputMode::Quiet {
+                            println!(
+                                "{} File is locked, scheduling for deletion on reboot...",
+                                Theme::warning("Note")
+                            );
+                        }
+
+                        schedule_delete_on_reboot(&exe_path).with_context(|| {
+                            format!(
+                                "Failed to schedule executable for deletion: {}",
+                                exe_path.display()
+                            )
+                        })?;
+
+                        scheduled_for_reboot = true;
+
+                        // Clear spinner
+                        if let Some(sp) = spinner {
+                            crate::progress::finish_and_clear(&sp);
+                        }
+
+                        if output_mode != OutputMode::Quiet {
+                            println!(
+                                "{} Executable will be deleted on next reboot",
+                                Theme::success("OK")
+                            );
+                        }
+                    } else {
+                        // Other error - fail with original context
+                        return Err(e).with_context(|| {
+                            format!("Failed to remove executable: {}", exe_path.display())
+                        });
+                    }
+                }
+            }
         }
 
-        if output_mode != OutputMode::Quiet {
-            println!("{} Removed executable", Theme::success("OK"));
-        }
-
-        // Remove bin directory if empty
-        if install_dir.exists() {
+        // Remove bin directory if empty (only if we didn't schedule for reboot)
+        if !scheduled_for_reboot && install_dir.exists() {
             match fs::read_dir(&install_dir) {
                 Ok(mut entries) => {
                     if entries.next().is_none() {
@@ -166,6 +348,12 @@ pub fn uninstall(remove_config: bool, remove_data: bool, output_mode: OutputMode
                     // Can't read directory, skip
                 }
             }
+        } else if scheduled_for_reboot && output_mode != OutputMode::Quiet {
+            // Inform user that bin directory will be removed after reboot
+            println!(
+                "{} Bin directory will be removed after reboot (when executable is deleted)",
+                Theme::muted("Note")
+            );
         }
     }
 
