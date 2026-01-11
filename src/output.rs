@@ -6,6 +6,85 @@ use std::path::PathBuf;
 // Forward declaration for duplicate groups
 pub use crate::categories::duplicates::DuplicateGroup;
 
+/// Get emoji for a category name in CLI output
+fn category_emoji(category_name: &str) -> &'static str {
+    match category_name {
+        "Installed Applications" | "Applications" => "📱",
+        "Old Files" => "📅",
+        "Downloads" | "Old Downloads" => "⬇️",
+        "Large Files" | "Large" => "📦",
+        "Package Cache" | "Package cache" => "📚",
+        "Application Cache" | "Application cache" => "💾",
+        "Temp Files" | "Temp" => "🗑️",
+        "Trash" => "🗑️",
+        "Build Artifacts" | "Build" => "🔨",
+        "Browser Cache" | "Browser" => "🌐",
+        "System Cache" | "System" => "⚙️",
+        "Empty Folders" | "Empty" => "📁",
+        "Duplicates" => "📋",
+        "Windows Update" => "🔄",
+        "Event Logs" => "📋",
+        _ => "📁", // Default folder emoji
+    }
+}
+
+/// Calculate display width of a string (emojis count as 2 characters)
+fn display_width(s: &str) -> usize {
+    s.chars()
+        .map(|c| {
+            // Check if character is likely an emoji or wide character
+            // Most emojis are in ranges: U+1F300-U+1F9FF, U+2600-U+26FF, U+2700-U+27BF, etc.
+            let code = c as u32;
+            if (0x1F300..=0x1F9FF).contains(&code)
+                || (0x2600..=0x26FF).contains(&code)
+                || (0x2700..=0x27BF).contains(&code)
+                || (0x1F600..=0x1F64F).contains(&code)
+                || (0x1F900..=0x1F9FF).contains(&code)
+                || code > 0xFFFF // Most wide characters
+            {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+/// Pad a string to a specific display width
+fn pad_to_width(s: &str, width: usize) -> String {
+    let current_width = display_width(s);
+    if current_width >= width {
+        return s.to_string();
+    }
+    format!("{}{}", s, " ".repeat(width - current_width))
+}
+
+/// Print a table row with borders
+fn print_table_row(cols: &[(String, usize)], border_left: &str, border_mid: &str, border_right: &str) {
+    let mut row = border_left.to_string();
+    for (i, (content, width)) in cols.iter().enumerate() {
+        if i > 0 {
+            row.push_str(border_mid);
+        }
+        row.push_str(&pad_to_width(content, *width));
+    }
+    row.push_str(border_right);
+    println!("{}", row);
+}
+
+/// Print a horizontal separator line
+fn print_table_separator(widths: &[usize], left: &str, _mid: &str, right: &str, cross: &str) {
+    let mut sep = left.to_string();
+    for (i, width) in widths.iter().enumerate() {
+        if i > 0 {
+            sep.push_str(cross);
+        }
+        sep.push_str(&"─".repeat(*width));
+    }
+    sep.push_str(right);
+    println!("{}", sep);
+}
+
 /// Output verbosity mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputMode {
@@ -108,14 +187,24 @@ pub fn print_human_with_options(
     println!("{}", Theme::header("Wole Scan Results"));
     println!("{}", Theme::divider_bold(60));
     println!();
-    println!(
-        "{:<15} {:>8} {:>12} {:>20}",
-        Theme::primary("Category"),
-        Theme::primary("Items"),
-        Theme::primary("Size"),
-        Theme::primary("Status")
+
+    // Table column widths
+    let col_widths = [25, 10, 12, 22];
+
+    // Print table header with borders
+    print_table_separator(&col_widths, "┌", "┬", "┐", "─");
+    print_table_row(
+        &[
+            (Theme::primary("Category"), col_widths[0]),
+            (Theme::primary("Items"), col_widths[1]),
+            (Theme::primary("Size"), col_widths[2]),
+            (Theme::primary("Status"), col_widths[3]),
+        ],
+        "│",
+        "│",
+        "│",
     );
-    println!("{}", Theme::divider(60));
+    print_table_separator(&col_widths, "├", "┼", "┤", "─");
 
     let categories = [
         ("Package cache", &results.cache, "[OK] Safe to clean"),
@@ -154,12 +243,18 @@ pub fn print_human_with_options(
             } else {
                 Theme::status_review(status)
             };
-            println!(
-                "{:<15} {:>8} {:>12} {:>20}",
-                Theme::category(name),
-                Theme::value(&result.items.to_string()),
-                Theme::size(&result.size_human()),
-                status_colored
+            let emoji = category_emoji(name);
+            let category_display = format!("{} {}", emoji, name);
+            print_table_row(
+                &[
+                    (Theme::category(&category_display), col_widths[0]),
+                    (Theme::value(&result.items.to_string()), col_widths[1]),
+                    (Theme::size(&result.size_human()), col_widths[2]),
+                    (status_colored, col_widths[3]),
+                ],
+                "│",
+                "│",
+                "│",
             );
 
             // Special handling for duplicates: show groups in verbose mode
@@ -281,7 +376,9 @@ pub fn print_human_with_options(
         + results.windows_update.size_bytes
         + results.event_logs.size_bytes;
 
-    println!("{}", Theme::divider(60));
+    // Print bottom border
+    print_table_separator(&col_widths, "└", "┴", "┘", "─");
+    println!();
 
     if total_items == 0 {
         println!(
@@ -289,13 +386,20 @@ pub fn print_human_with_options(
             Theme::success("Your system is clean! No reclaimable space found.")
         );
     } else {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            Theme::header("Total"),
-            Theme::value(&total_items.to_string()),
-            Theme::size(&bytesize::to_string(total_bytes, true)),
-            Theme::success("Reclaimable")
+        // Print total row with borders
+        print_table_separator(&col_widths, "├", "┼", "┤", "─");
+        print_table_row(
+            &[
+                (Theme::header("Total"), col_widths[0]),
+                (Theme::value(&total_items.to_string()), col_widths[1]),
+                (Theme::size(&bytesize::to_string(total_bytes, true)), col_widths[2]),
+                (Theme::success("Reclaimable"), col_widths[3]),
+            ],
+            "│",
+            "│",
+            "│",
         );
+        print_table_separator(&col_widths, "└", "┴", "┘", "─");
         println!();
         let clean_command = build_clean_command(options);
         println!(
@@ -654,17 +758,36 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
     categories.retain(|(_, result)| result.items > 0);
     categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
 
-    // Print table header
-    println!("{:<25} {:>10} {:>12}", "Category", "Files", "Size");
-    println!("{}", "─".repeat(47));
+    // Table column widths
+    let col_widths = [28, 12, 14];
+
+    // Print table header with borders
+    print_table_separator(&col_widths, "┌", "┬", "┐", "─");
+    print_table_row(
+        &[
+            ("Category".to_string(), col_widths[0]),
+            ("Files".to_string(), col_widths[1]),
+            ("Size".to_string(), col_widths[2]),
+        ],
+        "│",
+        "│",
+        "│",
+    );
+    print_table_separator(&col_widths, "├", "┼", "┤", "─");
 
     // Print category rows
     for (name, result) in &categories {
-        println!(
-            "{:<25} {:>10} {:>12}",
-            name,
-            format_number(result.items as u64),
-            result.size_human()
+        let emoji = category_emoji(name);
+        let category_display = format!("{} {}", emoji, name);
+        print_table_row(
+            &[
+                (category_display, col_widths[0]),
+                (format_number(result.items as u64), col_widths[1]),
+                (result.size_human(), col_widths[2]),
+            ],
+            "│",
+            "│",
+            "│",
         );
 
         // Special handling for duplicates: show groups in verbose mode
@@ -780,13 +903,18 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.event_logs.size_bytes;
 
     // Print separator and total
-    println!("{}", "─".repeat(47));
-    println!(
-        "{:<25} {:>10} {:>12}",
-        "Total",
-        format_number(total_items as u64),
-        bytesize::to_string(total_bytes, true)
+    print_table_separator(&col_widths, "├", "┼", "┤", "─");
+    print_table_row(
+        &[
+            ("Total".to_string(), col_widths[0]),
+            (format_number(total_items as u64), col_widths[1]),
+            (bytesize::to_string(total_bytes, true), col_widths[2]),
+        ],
+        "│",
+        "│",
+        "│",
     );
+    print_table_separator(&col_widths, "└", "┴", "┘", "─");
     println!();
 }
 
