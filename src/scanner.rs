@@ -89,7 +89,7 @@ fn try_incremental_scan(
     // previously cached. To ensure completeness, force a full scan.
     // TODO: In future, could add a mechanism to discover new paths (e.g., quick directory
     // traversal to detect new files) to make incremental scanning more effective.
-    return Ok(None);
+    Ok(None)
 }
 
 /// Execute full category scan
