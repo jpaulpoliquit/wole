@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="jpaulpoliquit/wole"
+REPO="jplx05/wole"
 
 # Detect OS and architecture
 OS="windows"

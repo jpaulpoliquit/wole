@@ -2,9 +2,90 @@ use crate::cli::ScanOptions;
 use crate::theme::Theme;
 use serde::Serialize;
 use std::path::PathBuf;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 // Forward declaration for duplicate groups
 pub use crate::categories::duplicates::DuplicateGroup;
+
+/// Get emoji for a category name in CLI output
+fn category_emoji(category_name: &str) -> &'static str {
+    match category_name {
+        "Installed Applications" | "Applications" => "📱",
+        "Old Files" => "📅",
+        "Downloads" | "Old Downloads" => "⬇️",
+        "Large Files" | "Large" => "📦",
+        "Package Cache" | "Package cache" => "📚",
+        "Application Cache" | "Application cache" => "💾",
+        "Temp Files" | "Temp" => "🗑️",
+        "Trash" => "🗑️",
+        "Build Artifacts" | "Build" => "🔨",
+        "Browser Cache" | "Browser" => "🌐",
+        "System Cache" | "System" => "⚙️",
+        "Empty Folders" | "Empty" => "📁",
+        "Duplicates" => "📋",
+        "Windows Update" => "🔄",
+        "Event Logs" => "📋",
+        _ => "📁", // Default folder emoji
+    }
+}
+
+/// Truncate a string to a maximum display width (adds ellipsis if needed).
+fn truncate_to_width(s: &str, max_width: usize) -> String {
+    if UnicodeWidthStr::width(s) <= max_width {
+        return s.to_string();
+    }
+
+    let ellipsis = "…";
+    let ellipsis_w = UnicodeWidthStr::width(ellipsis);
+    let target = max_width.saturating_sub(ellipsis_w);
+
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > target {
+            break;
+        }
+        out.push(ch);
+        w += cw;
+    }
+    out.push_str(ellipsis);
+    out
+}
+
+/// Pad/truncate content to a specific display width (Unicode-aware).
+fn pad_right_to_width(s: &str, width: usize) -> String {
+    let truncated = truncate_to_width(s, width);
+    let w = UnicodeWidthStr::width(truncated.as_str());
+    format!("{}{}", truncated, " ".repeat(width.saturating_sub(w)))
+}
+
+/// Print a table row with borders and 1-space cell padding.
+fn print_table_row(cols: &[(String, usize)]) {
+    let mut row = String::from("│");
+    for (content, width) in cols {
+        row.push(' ');
+        row.push_str(&pad_right_to_width(content, *width));
+        row.push(' ');
+        row.push('│');
+    }
+    println!("{}", row);
+}
+
+/// Print a horizontal separator line (Unicode box drawing).
+/// Widths are content widths (excluding the 1-space left/right padding).
+fn print_table_separator(widths: &[usize], left: &str, mid: &str, right: &str) {
+    let mut sep = left.to_string();
+    for (i, width) in widths.iter().enumerate() {
+        if i > 0 {
+            sep.push_str(mid);
+        }
+        // +2 for the 1-space padding on each side of the cell
+        sep.push_str(&"─".repeat(width + 2));
+    }
+    sep.push_str(right);
+    println!("{}", sep);
+}
 
 /// Output verbosity mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +126,7 @@ pub struct CategoryResult {
 
 impl CategoryResult {
     pub fn size_human(&self) -> String {
-        bytesize::to_string(self.size_bytes, true)
+        bytesize::to_string(self.size_bytes, false)
     }
 }
 
@@ -108,14 +189,20 @@ pub fn print_human_with_options(
     println!("{}", Theme::header("Wole Scan Results"));
     println!("{}", Theme::divider_bold(60));
     println!();
-    println!(
-        "{:<15} {:>8} {:>12} {:>20}",
-        Theme::primary("Category"),
-        Theme::primary("Items"),
-        Theme::primary("Size"),
-        Theme::primary("Status")
-    );
-    println!("{}", Theme::divider(60));
+
+    // Table column widths
+    // (content widths; padding handled by table helpers)
+    let col_widths = [26, 7, 12, 24];
+
+    // Print table header with borders
+    print_table_separator(&col_widths, "┌", "┬", "┐");
+    print_table_row(&[
+        (Theme::primary("Category"), col_widths[0]),
+        (Theme::primary("Items"), col_widths[1]),
+        (Theme::primary("Size"), col_widths[2]),
+        (Theme::primary("Status"), col_widths[3]),
+    ]);
+    print_table_separator(&col_widths, "├", "┼", "┤");
 
     let categories = [
         ("Package cache", &results.cache, "[OK] Safe to clean"),
@@ -154,13 +241,14 @@ pub fn print_human_with_options(
             } else {
                 Theme::status_review(status)
             };
-            println!(
-                "{:<15} {:>8} {:>12} {:>20}",
-                Theme::category(name),
-                Theme::value(&result.items.to_string()),
-                Theme::size(&result.size_human()),
-                status_colored
-            );
+            let emoji = category_emoji(name);
+            let category_display = format!("{} {}", emoji, name);
+            print_table_row(&[
+                (Theme::category(&category_display), col_widths[0]),
+                (Theme::value(&result.items.to_string()), col_widths[1]),
+                (Theme::size(&result.size_human()), col_widths[2]),
+                (status_colored, col_widths[3]),
+            ]);
 
             // Special handling for duplicates: show groups in verbose mode
             if name == "Duplicates"
@@ -179,10 +267,16 @@ pub fn print_human_with_options(
                             Theme::muted("└─"),
                             idx + 1,
                             group.paths.len(),
-                            bytesize::to_string(group.size, true)
+                            bytesize::to_string(group.size, false)
                         );
                         for path in &group.paths {
-                            println!("     {}", Theme::muted(&path.display().to_string()));
+                            let file_type = crate::utils::detect_file_type(path);
+                            let emoji = file_type.emoji();
+                            println!(
+                                "     {} {}",
+                                emoji,
+                                Theme::muted(&path.display().to_string())
+                            );
                         }
                     }
 
@@ -198,7 +292,9 @@ pub fn print_human_with_options(
                     if mode == OutputMode::Verbose && !result.paths.is_empty() {
                         let show_count = std::cmp::min(3, result.paths.len());
                         for path in result.paths.iter().take(show_count) {
-                            println!("  {}", Theme::muted(&path.display().to_string()));
+                            let file_type = crate::utils::detect_file_type(path);
+                            let emoji = file_type.emoji();
+                            println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                         }
                         if result.paths.len() > show_count {
                             println!(
@@ -209,7 +305,9 @@ pub fn print_human_with_options(
                         }
                     } else if mode == OutputMode::VeryVerbose {
                         for path in &result.paths {
-                            println!("  {}", Theme::muted(&path.display().to_string()));
+                            let file_type = crate::utils::detect_file_type(path);
+                            let emoji = file_type.emoji();
+                            println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                         }
                     }
                 }
@@ -219,7 +317,9 @@ pub fn print_human_with_options(
                 if mode == OutputMode::Verbose && !result.paths.is_empty() {
                     let show_count = std::cmp::min(3, result.paths.len());
                     for path in result.paths.iter().take(show_count) {
-                        println!("  {}", Theme::muted(&path.display().to_string()));
+                        let file_type = crate::utils::detect_file_type(path);
+                        let emoji = file_type.emoji();
+                        println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                     }
                     if result.paths.len() > show_count {
                         println!(
@@ -233,7 +333,9 @@ pub fn print_human_with_options(
                 // In very verbose mode, show all paths
                 if mode == OutputMode::VeryVerbose {
                     for path in &result.paths {
-                        println!("  {}", Theme::muted(&path.display().to_string()));
+                        let file_type = crate::utils::detect_file_type(path);
+                        let emoji = file_type.emoji();
+                        println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                     }
                 }
             }
@@ -271,21 +373,26 @@ pub fn print_human_with_options(
         + results.windows_update.size_bytes
         + results.event_logs.size_bytes;
 
-    println!("{}", Theme::divider(60));
-
     if total_items == 0 {
+        print_table_separator(&col_widths, "└", "┴", "┘");
+        println!();
         println!(
             "{}",
             Theme::success("Your system is clean! No reclaimable space found.")
         );
     } else {
-        println!(
-            "{:<15} {:>8} {:>12} {:>20}",
-            Theme::header("Total"),
-            Theme::value(&total_items.to_string()),
-            Theme::size(&bytesize::to_string(total_bytes, true)),
-            Theme::success("Reclaimable")
-        );
+        // Total row inside the same table box
+        print_table_separator(&col_widths, "├", "┼", "┤");
+        print_table_row(&[
+            (Theme::header("Total"), col_widths[0]),
+            (Theme::value(&total_items.to_string()), col_widths[1]),
+            (
+                Theme::size(&bytesize::to_string(total_bytes, false)),
+                col_widths[2],
+            ),
+            (Theme::success("Reclaimable"), col_widths[3]),
+        ]);
+        print_table_separator(&col_widths, "└", "┴", "┘");
         println!();
         let clean_command = build_clean_command(options);
         println!(
@@ -644,18 +751,28 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
     categories.retain(|(_, result)| result.items > 0);
     categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
 
-    // Print table header
-    println!("{:<25} {:>10} {:>12}", "Category", "Files", "Size");
-    println!("{}", "─".repeat(47));
+    // Table column widths
+    // (content widths; padding handled by table helpers)
+    let col_widths = [30, 10, 12];
+
+    // Print table header with borders
+    print_table_separator(&col_widths, "┌", "┬", "┐");
+    print_table_row(&[
+        ("Category".to_string(), col_widths[0]),
+        ("Files".to_string(), col_widths[1]),
+        ("Size".to_string(), col_widths[2]),
+    ]);
+    print_table_separator(&col_widths, "├", "┼", "┤");
 
     // Print category rows
     for (name, result) in &categories {
-        println!(
-            "{:<25} {:>10} {:>12}",
-            name,
-            format_number(result.items as u64),
-            result.size_human()
-        );
+        let emoji = category_emoji(name);
+        let category_display = format!("{} {}", emoji, name);
+        print_table_row(&[
+            (category_display, col_widths[0]),
+            (format_number(result.items as u64), col_widths[1]),
+            (result.size_human(), col_widths[2]),
+        ]);
 
         // Special handling for duplicates: show groups in verbose mode
         if *name == "Duplicates" && (mode == OutputMode::Verbose || mode == OutputMode::VeryVerbose)
@@ -673,10 +790,16 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
                         Theme::muted("└─"),
                         idx + 1,
                         group.paths.len(),
-                        bytesize::to_string(group.size, true)
+                        bytesize::to_string(group.size, false)
                     );
                     for path in &group.paths {
-                        println!("     {}", Theme::muted(&path.display().to_string()));
+                        let file_type = crate::utils::detect_file_type(path);
+                        let emoji = file_type.emoji();
+                        println!(
+                            "     {} {}",
+                            emoji,
+                            Theme::muted(&path.display().to_string())
+                        );
                     }
                 }
 
@@ -692,7 +815,9 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
                 if mode == OutputMode::Verbose && !result.paths.is_empty() {
                     let show_count = std::cmp::min(3, result.paths.len());
                     for path in result.paths.iter().take(show_count) {
-                        println!("  {}", Theme::muted(&path.display().to_string()));
+                        let file_type = crate::utils::detect_file_type(path);
+                        let emoji = file_type.emoji();
+                        println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                     }
                     if result.paths.len() > show_count {
                         println!(
@@ -703,7 +828,9 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
                     }
                 } else if mode == OutputMode::VeryVerbose {
                     for path in &result.paths {
-                        println!("  {}", Theme::muted(&path.display().to_string()));
+                        let file_type = crate::utils::detect_file_type(path);
+                        let emoji = file_type.emoji();
+                        println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
                     }
                 }
             }
@@ -717,7 +844,9 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
                 result.paths.len()
             };
             for path in result.paths.iter().take(show_count) {
-                println!("  {}", Theme::muted(&path.display().to_string()));
+                let file_type = crate::utils::detect_file_type(path);
+                let emoji = file_type.emoji();
+                println!("  {} {}", emoji, Theme::muted(&path.display().to_string()));
             }
             if result.paths.len() > show_count && mode == OutputMode::Verbose {
                 println!(
@@ -762,13 +891,13 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.event_logs.size_bytes;
 
     // Print separator and total
-    println!("{}", "─".repeat(47));
-    println!(
-        "{:<25} {:>10} {:>12}",
-        "Total",
-        format_number(total_items as u64),
-        bytesize::to_string(total_bytes, true)
-    );
+    print_table_separator(&col_widths, "├", "┼", "┤");
+    print_table_row(&[
+        ("Total".to_string(), col_widths[0]),
+        (format_number(total_items as u64), col_widths[1]),
+        (bytesize::to_string(total_bytes, false), col_widths[2]),
+    ]);
+    print_table_separator(&col_widths, "└", "┴", "┘");
     println!();
 }
 
@@ -794,7 +923,7 @@ pub fn print_disk_insights(
         "{}  {}  |  Total: {}  |  {} files",
         Theme::header("Disk Insights"),
         Theme::primary(&root_path.display().to_string()),
-        Theme::size(&bytesize::to_string(insights.total_size, true)),
+        Theme::size(&bytesize::to_string(insights.total_size, false)),
         Theme::value(&format_number(insights.total_files))
     );
     println!();
@@ -806,7 +935,7 @@ pub fn print_disk_insights(
         Theme::secondary("#"),
         root_bar,
         Theme::value("100.0%"),
-        Theme::size(&bytesize::to_string(insights.total_size, true))
+        Theme::size(&bytesize::to_string(insights.total_size, false))
     );
     println!("   {}", Theme::muted(&root_path.display().to_string()));
     println!();
@@ -814,7 +943,7 @@ pub fn print_disk_insights(
     // Show top folders
     for (i, folder) in top_folders.iter().enumerate() {
         let num = i + 1;
-        let size_str = bytesize::to_string(folder.size, true);
+        let size_str = bytesize::to_string(folder.size, false);
         let files_str = format_number(folder.file_count);
 
         // Get display name - use relative path from root if it's deeper than one level
@@ -865,7 +994,7 @@ pub fn print_disk_insights(
             let relative = crate::utils::to_relative_path(file_path, root_path);
             println!(
                 "  {}  {}",
-                Theme::size(&bytesize::to_string(*size, true)),
+                Theme::size(&bytesize::to_string(*size, false)),
                 Theme::muted(&relative)
             );
         }

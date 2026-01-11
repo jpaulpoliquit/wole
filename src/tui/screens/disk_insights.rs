@@ -22,15 +22,22 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
     let area = f.area();
 
     // Extract values we need to avoid borrowing issues
-    let (insights_clone, current_path_clone, cursor, sort_by) =
+    let (insights_clone, current_path_clone, cursor, sort_by, selected_paths_clone) =
         if let crate::tui::state::Screen::DiskInsights {
             ref insights,
             ref current_path,
             cursor,
             sort_by,
+            ref selected_paths,
         } = app_state.screen
         {
-            (insights.clone(), current_path.clone(), cursor, sort_by)
+            (
+                insights.clone(),
+                current_path.clone(),
+                cursor,
+                sort_by,
+                selected_paths.clone(),
+            )
         } else {
             return;
         };
@@ -67,6 +74,7 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
         &current_path_clone,
         cursor,
         sort_by,
+        &selected_paths_clone,
         app_state,
     );
 
@@ -151,6 +159,7 @@ fn render_search_bar(f: &mut Frame, area: Rect, app_state: &AppState) {
     f.render_widget(paragraph, area);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_content(
     f: &mut Frame,
     area: Rect,
@@ -158,6 +167,7 @@ fn render_content(
     current_path: &std::path::Path,
     cursor: usize,
     sort_by: SortBy,
+    selected_paths: &std::collections::HashSet<std::path::PathBuf>,
     app_state: &AppState,
 ) {
     // Find current folder node
@@ -212,11 +222,19 @@ fn render_content(
 
     // Add folders
     for (i, child) in children.iter().enumerate() {
-        let is_selected = i == cursor;
-        let style = if is_selected {
+        let is_cursor = i == cursor;
+        let is_selected = selected_paths.contains(&child.path);
+        let style = if is_cursor {
             Styles::selected()
         } else {
             Style::default()
+        };
+
+        let checkbox = if is_selected { "[X]" } else { "[ ]" };
+        let checkbox_style = if is_selected {
+            Styles::checked()
+        } else {
+            Styles::secondary()
         };
 
         let relative_pct = if max_size > 0 {
@@ -236,7 +254,7 @@ fn render_content(
         let bar_filled = "█".repeat(filled);
         let bar_empty = "░".repeat(empty);
 
-        let prefix = if is_selected { "> " } else { "  " };
+        let prefix = if is_cursor { "> " } else { "  " };
         let num_str = (i + 1).to_string();
         let size_str = bytesize_to_string(child.size, true);
         let files_str = format!("({} files)", format_number(child.file_count));
@@ -244,11 +262,13 @@ fn render_content(
 
         let line = Line::from(vec![
             Span::styled(prefix.to_string(), style),
+            Span::styled(checkbox, checkbox_style),
+            Span::raw(" "),
             Span::styled(num_str, style),
             Span::raw(" "),
             Span::styled(
                 bar_filled,
-                if is_selected {
+                if is_cursor {
                     Styles::selected()
                 } else {
                     Styles::emphasis()
@@ -271,11 +291,19 @@ fn render_content(
     // Add files
     for (i, file) in files.iter().enumerate() {
         let item_index = children.len() + i;
-        let is_selected = item_index == cursor;
-        let style = if is_selected {
+        let is_cursor = item_index == cursor;
+        let is_selected = selected_paths.contains(&file.path);
+        let style = if is_cursor {
             Styles::selected()
         } else {
             Style::default()
+        };
+
+        let checkbox = if is_selected { "[X]" } else { "[ ]" };
+        let checkbox_style = if is_selected {
+            Styles::checked()
+        } else {
+            Styles::secondary()
         };
 
         let relative_pct = if max_size > 0 {
@@ -295,7 +323,7 @@ fn render_content(
         let bar_filled = "█".repeat(filled);
         let bar_empty = "░".repeat(empty);
 
-        let prefix = if is_selected { "> " } else { "  " };
+        let prefix = if is_cursor { "> " } else { "  " };
         let num_str = (item_index + 1).to_string();
         let size_str = bytesize_to_string(file.size, true);
         let pct_str = if current_node.size > 0 {
@@ -309,11 +337,13 @@ fn render_content(
 
         let line = Line::from(vec![
             Span::styled(prefix.to_string(), style),
+            Span::styled(checkbox, checkbox_style),
+            Span::raw(" "),
             Span::styled(num_str, style),
             Span::raw(" "),
             Span::styled(
                 bar_filled,
-                if is_selected {
+                if is_cursor {
                     Styles::selected()
                 } else {
                     Styles::emphasis()

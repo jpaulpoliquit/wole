@@ -25,7 +25,7 @@ fn fun_comparison_short(bytes: u64) -> Option<String> {
     const GB: u64 = 1_000_000_000;
 
     let game_size: u64 = 50 * GB; // ~50 GB for AAA game
-    let node_modules_size: u64 = 500 * MB; // ~500 MB average node_modules
+    let hd_video_hour: u64 = 1_500 * MB; // ~1.5 GB per hour of HD video
     let floppy_size: u64 = 1_440_000; // 1.44 MB floppy disk
 
     if bytes >= 10 * GB {
@@ -36,8 +36,15 @@ fn fun_comparison_short(bytes: u64) -> Option<String> {
             Some("(partial game install!)".to_string())
         }
     } else if bytes >= 500 * MB {
-        let count = bytes / node_modules_size;
-        Some(format!("(~{} node_modules!)", count))
+        let hours = bytes / hd_video_hour;
+        if hours >= 1 {
+            Some(format!("(~{} hours of HD video!)", hours))
+        } else {
+            Some(format!(
+                "(~{:.1} hours of HD video!)",
+                bytes as f64 / hd_video_hour as f64
+            ))
+        }
     } else if bytes >= 10 * MB {
         let count = bytes / floppy_size;
         Some(format!("(~{} floppies!)", count))
@@ -52,9 +59,28 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
 
     // Detect small viewport to adjust rendering
     let is_small = area.height < 20 || area.width < 60;
+    let has_notice = matches!(
+        app_state.screen,
+        crate::tui::state::Screen::Scanning {
+            progress: crate::tui::state::ScanProgress {
+                notice: Some(_),
+                ..
+            }
+        }
+    );
 
     // Adjust constraints for small viewports
-    let status_height = if is_small { 2 } else { 3 };
+    let status_height = if is_small {
+        if has_notice {
+            3
+        } else {
+            2
+        }
+    } else if has_notice {
+        4
+    } else {
+        3
+    };
     let shortcuts_height = if is_small { 2 } else { 3 };
     let min_progress_height = if is_small { 3 } else { 8 };
 
@@ -81,10 +107,80 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
             format!("{}  Scanning {}...", spinner, progress.current_category)
         };
 
-        let status_lines = vec![Line::from(vec![Span::styled(
+        // Calculate elapsed time and estimated remaining time
+        let elapsed = progress.start_time.elapsed();
+        let elapsed_secs = elapsed.as_secs();
+        let elapsed_display = if elapsed_secs < 60 {
+            format!("{}s", elapsed_secs)
+        } else if elapsed_secs < 3600 {
+            let mins = elapsed_secs / 60;
+            let secs = elapsed_secs % 60;
+            format!("{}m {}s", mins, secs)
+        } else {
+            let hours = elapsed_secs / 3600;
+            let mins = (elapsed_secs % 3600) / 60;
+            let secs = elapsed_secs % 60;
+            format!("{}h {}m {}s", hours, mins, secs)
+        };
+
+        // Calculate estimated remaining time based on progress
+        let total_categories = progress.category_progress.len();
+        let completed_categories = progress
+            .category_progress
+            .iter()
+            .filter(|c| c.completed)
+            .count();
+        let estimated_remaining = if total_categories > 0
+            && completed_categories > 0
+            && completed_categories < total_categories
+        {
+            let avg_time_per_category = elapsed_secs as f64 / completed_categories as f64;
+            let remaining_categories = total_categories - completed_categories;
+            let estimated_secs = (avg_time_per_category * remaining_categories as f64) as u64;
+            if estimated_secs < 60 {
+                Some(format!("~{}s", estimated_secs))
+            } else if estimated_secs < 3600 {
+                Some(format!(
+                    "~{}m {}s",
+                    estimated_secs / 60,
+                    estimated_secs % 60
+                ))
+            } else {
+                Some(format!(
+                    "~{}h {}m",
+                    estimated_secs / 3600,
+                    (estimated_secs % 3600) / 60
+                ))
+            }
+        } else {
+            None
+        };
+
+        let mut status_lines = vec![Line::from(vec![Span::styled(
             status_text,
             Styles::emphasis(),
         )])];
+
+        // Add time information
+        let time_info = if let Some(remaining) = estimated_remaining {
+            format!(
+                "Elapsed: {} │ Est. remaining: {}",
+                elapsed_display, remaining
+            )
+        } else {
+            format!("Elapsed: {}", elapsed_display)
+        };
+        status_lines.push(Line::from(vec![Span::styled(
+            time_info,
+            Styles::secondary(),
+        )]));
+
+        if let Some(ref notice) = progress.notice {
+            status_lines.push(Line::from(vec![Span::styled(
+                notice.clone(),
+                Styles::secondary(),
+            )]));
+        }
         // Use simpler borders on small viewports to avoid rendering issues
         let borders = if is_small {
             Borders::TOP | Borders::BOTTOM
@@ -247,8 +343,9 @@ pub fn render_cleaning(f: &mut Frame, app_state: &AppState) {
     // Header with animated spinner
     // Use faster animation for cleaning (every 2 ticks instead of default)
     let cleaning_spinner = spinner::get_spinner(app_state.tick * 2);
+    // Show category-specific message in progress bar, keep header generic
     let header = Paragraph::new(Line::from(vec![Span::styled(
-        format!("{}  Cleaning files...", cleaning_spinner),
+        format!("{}  Cleaning...", cleaning_spinner),
         Styles::emphasis(),
     )]))
     .block(

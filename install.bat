@@ -4,7 +4,7 @@ REM Downloads and installs wole from GitHub releases
 
 setlocal enabledelayedexpansion
 
-set REPO=jpaulpoliquit/wole
+set REPO=jplx05/wole
 
 REM Detect architecture
 REM Check PROCESSOR_ARCHITECTURE (may be x86 for 32-bit processes on 64-bit systems)

@@ -24,7 +24,7 @@ Since GitHub's API doesn't allow programmatic configuration of all repository se
 
 ### 1. Branch Protection Rules (CRITICAL)
 
-**Go to:** `https://github.com/jpaulpoliquit/wole/settings/branches`
+**Go to:** `https://github.com/jplx05/wole/settings/branches`
 
 1. Click "Add rule" or edit existing rule for `master` branch
 2. Configure:
@@ -41,7 +41,7 @@ Since GitHub's API doesn't allow programmatic configuration of all repository se
 
 ### 2. Repository Permissions
 
-**Go to:** `https://github.com/jpaulpoliquit/wole/settings/actions`
+**Go to:** `https://github.com/jplx05/wole/settings/actions`
 
 - ✅ Allow all actions and reusable workflows
 - ✅ Allow actions created by GitHub
@@ -49,7 +49,7 @@ Since GitHub's API doesn't allow programmatic configuration of all repository se
 
 ### 3. Issues and Pull Requests
 
-**Go to:** `https://github.com/jpaulpoliquit/wole/settings`
+**Go to:** `https://github.com/jplx05/wole/settings`
 
 - ✅ Enable Issues
 - ✅ Enable Projects (optional)
@@ -61,7 +61,7 @@ Since GitHub's API doesn't allow programmatic configuration of all repository se
 
 ### 4. Labels (Optional but Recommended)
 
-**Go to:** `https://github.com/jpaulpoliquit/wole/labels`
+**Go to:** `https://github.com/jplx05/wole/labels`
 
 Create labels for better issue/PR organization:
 - `bug`, `enhancement`, `documentation`, `question`
@@ -71,7 +71,7 @@ Create labels for better issue/PR organization:
 
 ### 5. Security Settings
 
-**Go to:** `https://github.com/jpaulpoliquit/wole/settings/security`
+**Go to:** `https://github.com/jplx05/wole/settings/security`
 
 - ✅ Enable Dependabot alerts
 - ✅ Enable Dependabot security updates

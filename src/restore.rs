@@ -834,7 +834,7 @@ mod tests {
             "Summary should contain '5': {}",
             summary
         );
-        // bytesize::to_string with binary_units=true may format as "1.0 MiB", "1 MiB", or similar
+        // bytesize::to_string with binary_units=false formats as "1.0 MB", "1 GB", etc. (decimal units)
         // Check for the unit and that size representation is present
         assert!(
             summary.contains("MiB") || summary.contains("MB"),

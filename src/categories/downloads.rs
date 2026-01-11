@@ -1,11 +1,13 @@
 use crate::config::Config;
 use crate::output::{CategoryResult, OutputMode};
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::theme::Theme;
 use anyhow::{Context, Result};
 use bytesize;
 use chrono::{Duration, Utc};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use walkdir::WalkDir;
 
 /// Maximum number of results to return (prevents overwhelming output)
@@ -126,11 +128,14 @@ pub fn scan(
         };
 
         for (i, (path, size)) in files_with_sizes.iter().take(show_count).enumerate() {
-            let size_str = bytesize::to_string(*size, true);
+            let size_str = bytesize::to_string(*size, false);
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let file_type = crate::utils::detect_file_type(path);
+            let emoji = file_type.emoji();
             println!(
-                "      {} {} ({})",
+                "      {} {} {} ({})",
                 Theme::muted("→"),
+                emoji,
                 file_name,
                 Theme::size(&size_str)
             );
@@ -153,6 +158,71 @@ pub fn scan(
         result.paths.push(path);
     }
 
+    Ok(result)
+}
+
+/// Scan Downloads with TUI progress updates (current file path).
+pub fn scan_with_progress(
+    root: &Path,
+    min_age_days: u64,
+    config: &Config,
+    output_mode: OutputMode,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<CategoryResult> {
+    let reporter = ScanPathReporter::new("Old Downloads", tx.clone(), 75);
+    let cutoff = Utc::now() - Duration::days(min_age_days as i64);
+
+    let mut result = CategoryResult::default();
+    let downloads_path = if let Ok(user_profile) = env::var("USERPROFILE") {
+        PathBuf::from(&user_profile).join("Downloads")
+    } else {
+        return Ok(result);
+    };
+    if !downloads_path.exists() {
+        return Ok(result);
+    }
+
+    let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
+
+    for entry in WalkDir::new(&downloads_path)
+        .max_depth(1)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| !(e.file_type().is_dir() && config.is_excluded(e.path())))
+    {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if entry.path() == downloads_path {
+            continue;
+        }
+
+        reporter.emit_path(entry.path());
+
+        match entry.metadata() {
+            Ok(metadata) if metadata.is_file() => {
+                if let Ok(modified) = metadata.modified() {
+                    let modified_dt: chrono::DateTime<Utc> = modified.into();
+                    if modified_dt < cutoff {
+                        files_with_sizes.push((entry.path().to_path_buf(), metadata.len()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.truncate(MAX_RESULTS);
+    for (path, size) in files_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = root;
+    let _ = output_mode;
     Ok(result)
 }
 

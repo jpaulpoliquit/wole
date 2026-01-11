@@ -2,12 +2,14 @@
 
 use crate::tui::{
     state::AppState,
-    theme::{category_style, Styles},
+    theme::Styles,
     widgets::{
         logo::{render_logo, render_tagline, LOGO_WITH_TAGLINE_HEIGHT},
         shortcuts::{get_shortcuts, render_shortcuts},
     },
 };
+use crate::utils::{detect_file_type, FileType};
+use chrono;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
@@ -16,6 +18,19 @@ use ratatui::{
     Frame,
 };
 use std::time::SystemTime;
+
+// Helper function to format numbers with commas
+fn format_number(n: u64) -> String {
+    let s = n.to_string();
+    let mut result = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            result.push(',');
+        }
+        result.push(c);
+    }
+    result.chars().rev().collect()
+}
 
 fn truncate_end(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -32,27 +47,231 @@ fn truncate_end(s: &str, max_chars: usize) -> String {
     format!("{}...", s.chars().take(take).collect::<String>())
 }
 
-fn format_ago(t: Option<SystemTime>) -> String {
+/// Extract only the "text query" part of the search query for highlighting.
+///
+/// Examples:
+/// - "/type:image dynamics" -> "dynamics"
+/// - "type:.jpg dyn" -> "dyn"
+/// - "dynamics" -> "dynamics"
+fn highlight_text_query(search_query: &str) -> String {
+    let query = search_query.trim();
+    if query.is_empty() {
+        return String::new();
+    }
+
+    // If query uses /type: or type: syntax, highlight only the text portion after the type token.
+    if let Some(type_part) = query
+        .strip_prefix("/type:")
+        .or_else(|| query.strip_prefix("type:"))
+    {
+        let type_part = type_part.trim();
+        if let Some(space_idx) = type_part.find(' ') {
+            return type_part[space_idx..].trim().to_lowercase();
+        }
+        return String::new();
+    }
+
+    // Regular text query.
+    query.to_lowercase()
+}
+
+/// Split `text` into styled spans, highlighting any occurrences of `query_lc` (case-insensitive).
+///
+/// Note: `query_lc` must already be lowercased.
+fn spans_with_highlight(
+    text: &str,
+    query_lc: &str,
+    normal: Style,
+    highlight: Style,
+) -> Vec<Span<'static>> {
+    if text.is_empty() {
+        return vec![Span::styled(String::new(), normal)];
+    }
+    if query_lc.is_empty() {
+        return vec![Span::styled(text.to_string(), normal)];
+    }
+
+    let lower = text.to_lowercase();
+    let qlen_bytes = query_lc.len();
+    if qlen_bytes == 0 {
+        return vec![Span::styled(text.to_string(), normal)];
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut search_from: usize = 0; // byte offset into `lower`
+    let mut consumed_chars: usize = 0; // char offset into `text`
+
+    while search_from <= lower.len() {
+        let Some(rel_pos) = lower[search_from..].find(query_lc) else {
+            break;
+        };
+        let match_start_byte = search_from + rel_pos;
+        let match_end_byte = match_start_byte.saturating_add(qlen_bytes).min(lower.len());
+
+        // Map match byte offsets (in `lower`) into character offsets.
+        let match_start_chars = lower[..match_start_byte].chars().count();
+        let match_end_chars = lower[..match_end_byte].chars().count();
+
+        // Non-matching segment before the match.
+        if match_start_chars > consumed_chars {
+            let seg = text
+                .chars()
+                .skip(consumed_chars)
+                .take(match_start_chars - consumed_chars)
+                .collect::<String>();
+            if !seg.is_empty() {
+                spans.push(Span::styled(seg, normal));
+            }
+        }
+
+        // Matching segment.
+        if match_end_chars > match_start_chars {
+            let seg = text
+                .chars()
+                .skip(match_start_chars)
+                .take(match_end_chars - match_start_chars)
+                .collect::<String>();
+            if !seg.is_empty() {
+                spans.push(Span::styled(seg, highlight));
+            }
+        }
+
+        consumed_chars = match_end_chars;
+        search_from = match_end_byte;
+    }
+
+    // Trailing segment after the last match.
+    let remaining = text.chars().skip(consumed_chars).collect::<String>();
+    if !remaining.is_empty() {
+        spans.push(Span::styled(remaining, normal));
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::styled(text.to_string(), normal));
+    }
+
+    spans
+}
+
+/// Get emoji for a category name
+fn category_emoji(category_name: &str) -> &'static str {
+    match category_name {
+        "Installed Applications" => "📱",
+        "Old Files" => "📅",
+        "Downloads" => "⬇️",
+        "Large Files" => "📦",
+        "Package Cache" => "📚",
+        "Application Cache" => "💾",
+        "Temp Files" => "🗑️",
+        "Trash" => "🗑️",
+        "Build Artifacts" => "🔨",
+        "Browser Cache" => "🌐",
+        "System Cache" => "⚙️",
+        "Empty Folders" => "📁",
+        "Duplicates" => "📋",
+        "Windows Update" => "🔄",
+        "Event Logs" => "📋",
+        _ => "📁", // Default folder emoji
+    }
+}
+
+/// Get emoji for a folder based on dominant file type in its items
+/// Uses deterministic sorting to prevent recalculation changes
+fn folder_emoji(app_state: &AppState, folder: &crate::tui::state::FolderGroup) -> &'static str {
+    use std::collections::HashMap;
+
+    // Special case: if only one item, use its file type directly (no recalculation needed)
+    if folder.items.len() == 1 {
+        if let Some(&item_idx) = folder.items.first() {
+            if let Some(item) = app_state.all_items.get(item_idx) {
+                return detect_file_type(&item.path).emoji();
+            }
+        }
+        return "📁"; // Default if item not found
+    }
+
+    // Count file types in this folder
+    let mut type_counts: HashMap<FileType, usize> = HashMap::new();
+
+    for &item_idx in &folder.items {
+        if let Some(item) = app_state.all_items.get(item_idx) {
+            let file_type = detect_file_type(&item.path);
+            *type_counts.entry(file_type).or_insert(0) += 1;
+        }
+    }
+
+    // Find the dominant file type with deterministic tie-breaking
+    // Convert to Vec and sort for stable, deterministic ordering
+    let mut type_vec: Vec<(&FileType, &usize)> = type_counts.iter().collect();
+    // Sort by count descending, then by FileType Debug representation for stability
+    type_vec.sort_by(|a, b| {
+        // First compare by count (descending)
+        let count_cmp = b.1.cmp(a.1);
+        if count_cmp != std::cmp::Ordering::Equal {
+            return count_cmp;
+        }
+        // If counts are equal, compare by FileType Debug representation for deterministic result
+        format!("{:?}", a.0).cmp(&format!("{:?}", b.0))
+    });
+
+    if let Some((dominant_type, _)) = type_vec.first() {
+        dominant_type.emoji()
+    } else {
+        "📁" // Default folder emoji if no items
+    }
+}
+
+fn format_date(t: Option<SystemTime>) -> String {
     let Some(t) = t else {
         return "--".to_string();
     };
-    let Ok(elapsed) = t.elapsed() else {
-        return "--".to_string();
+    // Convert SystemTime to DateTime<Local>
+    let datetime = match t.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => chrono::DateTime::<chrono::Utc>::from_timestamp(
+            duration.as_secs() as i64,
+            duration.subsec_nanos(),
+        )
+        .map(|dt: chrono::DateTime<chrono::Utc>| dt.with_timezone(&chrono::Local)),
+        Err(_) => return "--".to_string(),
     };
-    let secs = elapsed.as_secs();
-    // Always show at least "1m ago" for recent/active apps (no seconds)
-    if secs < 60 {
-        "1m ago".to_string()
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else if secs < 86400 * 14 {
-        format!("{}d ago", secs / 86400)
-    } else if secs < 86400 * 365 {
-        format!("{}w ago", secs / (86400 * 7))
+
+    if let Some(dt) = datetime {
+        let now = chrono::Local::now();
+        let days_diff = (now.date_naive() - dt.date_naive()).num_days();
+
+        // Format as relative dates
+        match days_diff {
+            0 => "today".to_string(),
+            1 => "yesterday".to_string(),
+            d if d > 1 && d < 7 => format!("{}d ago", d),
+            d if (7..30).contains(&d) => {
+                let weeks = d / 7;
+                if weeks == 1 {
+                    "1w ago".to_string()
+                } else {
+                    format!("{}w ago", weeks)
+                }
+            }
+            d if (30..365).contains(&d) => {
+                let months = d / 30;
+                if months == 1 {
+                    "1mo ago".to_string()
+                } else {
+                    format!("{}mo ago", months)
+                }
+            }
+            d if d >= 365 => {
+                let years = d / 365;
+                if years == 1 {
+                    "1y ago".to_string()
+                } else {
+                    format!("{}y ago", years)
+                }
+            }
+            _ => "--".to_string(), // Future dates or invalid
+        }
     } else {
-        format!("{}y ago", secs / (86400 * 365))
+        "--".to_string()
     }
 }
 
@@ -118,7 +337,7 @@ fn fun_comparison(bytes: u64) -> Option<String> {
     const GB: u64 = 1_000_000_000;
 
     let game_size: u64 = 50 * GB; // ~50 GB for AAA game
-    let node_modules_size: u64 = 500 * MB; // ~500 MB average node_modules
+    let hd_video_hour: u64 = 1_500 * MB; // ~1.5 GB per hour of HD video
     let floppy_size: u64 = 1_440_000; // 1.44 MB floppy disk
 
     if bytes >= 10 * GB {
@@ -130,9 +349,17 @@ fn fun_comparison(bytes: u64) -> Option<String> {
             Some(format!("a partial game install (~{:.1} GB)", gb))
         }
     } else if bytes >= 500 * MB {
-        let count = bytes / node_modules_size;
+        let hours = bytes / hd_video_hour;
         let gb = bytes as f64 / GB as f64;
-        Some(format!("~{} node_modules folders (~{:.1} GB)", count, gb))
+        if hours >= 1 {
+            Some(format!("~{} hours of HD video (~{:.1} GB)", hours, gb))
+        } else {
+            Some(format!(
+                "~{:.1} hours of HD video (~{:.1} GB)",
+                bytes as f64 / hd_video_hour as f64,
+                gb
+            ))
+        }
     } else if bytes >= 10 * MB {
         let count = bytes / floppy_size;
         let mb = bytes as f64 / MB as f64;
@@ -146,14 +373,20 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
     let area = f.area();
 
     // Layout: logo+tagline, summary, search bar (always visible), grouped results, shortcuts
+    // Adjust summary height if first scan stats are shown
+    let summary_height = if app_state.first_scan_stats.is_some() {
+        8
+    } else {
+        5
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(LOGO_WITH_TAGLINE_HEIGHT), // Logo + 2 blank lines + tagline
-            Constraint::Length(5),                        // Summary
-            Constraint::Length(3),                        // Search bar (always visible)
-            Constraint::Min(10),                          // Grouped results
-            Constraint::Length(3),                        // Shortcuts
+            Constraint::Length(summary_height), // Summary (taller if first scan stats shown)
+            Constraint::Length(3),              // Search bar (always visible)
+            Constraint::Min(10),                // Grouped results
+            Constraint::Length(3),              // Shortcuts
         ])
         .split(area);
 
@@ -177,7 +410,7 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
         Span::styled(format!("{}", selected_count), Styles::checked()),
         Span::styled(" │ ", Styles::secondary()),
         Span::styled("Reclaimable: ", Styles::secondary()),
-        Span::styled(bytesize::to_string(total_size, true), Styles::emphasis()),
+        Span::styled(bytesize::to_string(total_size, false), Styles::emphasis()),
         Span::styled(" │ ", Styles::secondary()),
         Span::styled("Categories: ", Styles::secondary()),
         Span::styled(format!("{}", categories_count), Styles::emphasis()),
@@ -194,20 +427,20 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
 
             line2_spans.push(Span::styled("Current storage: ", Styles::secondary()));
             line2_spans.push(Span::styled(
-                bytesize::to_string(current_storage, true),
+                bytesize::to_string(current_storage, false),
                 Styles::emphasis(),
             ));
             line2_spans.push(Span::styled(" │ ", Styles::secondary()));
             line2_spans.push(Span::styled("Storage after: ", Styles::secondary()));
             line2_spans.push(Span::styled(
-                bytesize::to_string(storage_after, true),
+                bytesize::to_string(storage_after, false),
                 Styles::emphasis(),
             ));
         } else {
             // Show free space (original behavior)
             line2_spans.push(Span::styled("Free space: ", Styles::secondary()));
             line2_spans.push(Span::styled(
-                bytesize::to_string(disk.free_bytes, true),
+                bytesize::to_string(disk.free_bytes, false),
                 Styles::emphasis(),
             ));
         }
@@ -224,6 +457,45 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
     }
 
     summary_lines.push(Line::from(line2_spans));
+
+    // Show first scan summary if available
+    if let Some((total_files, total_storage)) = app_state.first_scan_stats {
+        summary_lines.push(Line::from(""));
+        summary_lines.push(Line::from(vec![
+            Span::styled("  ", Styles::secondary()),
+            Span::styled("First scan complete: ", Styles::header()),
+            Span::styled(
+                format!("{} files examined", format_number(total_files as u64)),
+                Styles::primary(),
+            ),
+            Span::styled(" │ ", Styles::secondary()),
+            Span::styled(
+                format!("{} indexed", bytesize::to_string(total_storage, false)),
+                Styles::primary(),
+            ),
+        ]));
+        summary_lines.push(Line::from(vec![
+            Span::styled("  ", Styles::secondary()),
+            Span::styled(
+                if app_state.config.cache.full_disk_baseline {
+                    "Deep cache baseline built (full-disk traversal enabled) — future scans will be faster"
+                } else {
+                    "Cache baseline built from category scans (fast) — future scans will be faster"
+                },
+                Styles::muted(),
+            ),
+        ]));
+        if !app_state.config.cache.full_disk_baseline {
+            summary_lines.push(Line::from(vec![
+                Span::styled("  ", Styles::secondary()),
+                Span::styled(
+                    "Tip: enable deep baseline via config: cache.full_disk_baseline = true",
+                    Styles::secondary(),
+                ),
+            ]));
+        }
+    }
+
     summary_lines.push(Line::from(""));
     summary_lines.push(Line::from(vec![
         Span::styled("  Press ", Styles::secondary()),
@@ -251,12 +523,131 @@ pub fn render(f: &mut Frame, app_state: &mut AppState) {
 }
 
 fn render_search_bar(f: &mut Frame, area: Rect, app_state: &AppState) {
+    // Parse query to detect type filter (for display purposes)
+    let (type_filter, extension_filter, text_query) = {
+        let query = app_state.search_query.trim();
+        if query.is_empty() {
+            (None, None, String::new())
+        } else if let Some(type_part) = query.strip_prefix("/type:") {
+            let type_part = type_part.trim();
+            let (type_str, text) = if let Some(space_idx) = type_part.find(' ') {
+                let type_str = type_part[..space_idx].trim().to_lowercase();
+                let text = type_part[space_idx..].trim().to_string();
+                (type_str, text)
+            } else {
+                (type_part.to_lowercase(), String::new())
+            };
+
+            // Check if it's an extension
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
+            if is_extension {
+                let ext = type_str.strip_prefix('.').unwrap_or(&type_str).to_string();
+                (None, Some(ext), text)
+            } else {
+                let file_type = match_file_type_string(&type_str);
+                (file_type, None, text)
+            }
+        } else if let Some(type_part) = query.strip_prefix("type:") {
+            let type_part = type_part.trim();
+            let (type_str, text) = if let Some(space_idx) = type_part.find(' ') {
+                let type_str = type_part[..space_idx].trim().to_lowercase();
+                let text = type_part[space_idx..].trim().to_string();
+                (type_str, text)
+            } else {
+                (type_part.to_lowercase(), String::new())
+            };
+
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
+            if is_extension {
+                let ext = type_str.strip_prefix('.').unwrap_or(&type_str).to_string();
+                (None, Some(ext), text)
+            } else {
+                let file_type = match_file_type_string(&type_str);
+                (file_type, None, text)
+            }
+        } else {
+            (None, None, query.to_lowercase())
+        }
+    };
+
     let search_text = if app_state.search_mode {
         format!("/ {}_", app_state.search_query) // Cursor indicator
     } else if app_state.search_query.is_empty() {
-        "Press / to filter results...".to_string()
+        "Press / to filter results... Use /type:image, /type:.jpg, etc.".to_string()
     } else {
-        format!("Filter: {} (Esc to clear)", app_state.search_query)
+        let mut filter_text = String::new();
+        let has_extension_filter = extension_filter.is_some();
+        if let Some(ref ext) = extension_filter {
+            filter_text.push_str(&format!("Extension: .{} ", ext));
+        } else if let Some(file_type) = type_filter {
+            filter_text.push_str(&format!("Type: {} ", file_type.as_str()));
+        }
+        if !text_query.is_empty() {
+            filter_text.push_str(&format!("Text: {}", text_query));
+        } else if has_extension_filter || type_filter.is_some() {
+            filter_text.push_str("(all matching)");
+        } else {
+            filter_text.push_str(&app_state.search_query);
+        }
+        format!("Filter: {} (Esc to clear)", filter_text)
     };
 
     let style = if app_state.search_mode {
@@ -273,6 +664,73 @@ fn render_search_bar(f: &mut Frame, area: Rect, app_state: &AppState) {
     );
 
     f.render_widget(paragraph, area);
+}
+
+/// Match a string to a FileType enum value (case-insensitive, partial match)
+/// Also supports file extensions like ".jpg", "jpg", ".mp4", etc.
+fn match_file_type_string(type_str: &str) -> Option<crate::utils::FileType> {
+    use crate::utils::FileType;
+    let type_lower = type_str.to_lowercase();
+
+    // If it starts with ., definitely treat as extension
+    if let Some(ext) = type_lower.strip_prefix('.') {
+        let test_path_str = format!("file.{}", ext);
+        let test_path = std::path::Path::new(&test_path_str);
+        let detected_type = crate::utils::detect_file_type(test_path);
+        if detected_type != FileType::Other {
+            return Some(detected_type);
+        }
+        return None;
+    }
+
+    // Try exact match for type names first
+    let type_match = match type_lower.as_str() {
+        "video" => Some(FileType::Video),
+        "audio" => Some(FileType::Audio),
+        "image" => Some(FileType::Image),
+        "diskimage" | "disk image" | "disk" => Some(FileType::DiskImage),
+        "archive" => Some(FileType::Archive),
+        "installer" => Some(FileType::Installer),
+        "document" | "doc" => Some(FileType::Document),
+        "spreadsheet" | "sheet" => Some(FileType::Spreadsheet),
+        "presentation" | "pres" => Some(FileType::Presentation),
+        "code" | "source" | "src" => Some(FileType::Code),
+        "text" => Some(FileType::Text),
+        "database" | "db" => Some(FileType::Database),
+        "backup" => Some(FileType::Backup),
+        "font" | "fonts" => Some(FileType::Font),
+        "log" | "logs" => Some(FileType::Log),
+        "certificate" | "cert" | "crypto" => Some(FileType::Certificate),
+        "system" | "sys" => Some(FileType::System),
+        "build" => Some(FileType::Build),
+        "subtitle" | "sub" | "subs" => Some(FileType::Subtitle),
+        "cad" => Some(FileType::CAD),
+        "3d" | "3dmodel" | "3d model" | "model" => Some(FileType::Model3D),
+        "gis" | "map" | "maps" => Some(FileType::GIS),
+        "vm" | "virtualmachine" | "virtual machine" => Some(FileType::VirtualMachine),
+        "container" | "docker" => Some(FileType::Container),
+        "webasset" | "web asset" | "web" => Some(FileType::WebAsset),
+        "game" | "games" => Some(FileType::Game),
+        "other" => Some(FileType::Other),
+        _ => None,
+    };
+
+    // If type name matched, return it
+    if type_match.is_some() {
+        return type_match;
+    }
+
+    // If no type name match and it's a short string (likely an extension), try as extension
+    if type_lower.len() <= 4 && !type_lower.contains(' ') {
+        let test_path_str = format!("file.{}", type_lower);
+        let test_path = std::path::Path::new(&test_path_str);
+        let detected_type = crate::utils::detect_file_type(test_path);
+        if detected_type != FileType::Other {
+            return Some(detected_type);
+        }
+    }
+
+    None
 }
 
 fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
@@ -300,6 +758,7 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
     } else {
         app_state.filtered_results_rows()
     };
+    let highlight_query = highlight_text_query(&app_state.search_query);
 
     // If rows is empty but we have category groups, something went wrong
     // Try to show items directly as a fallback - show ALL categories
@@ -311,10 +770,15 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 if !item_indices.is_empty() {
                     // Show category name as header
                     if app_state.category_groups.len() > 1 {
-                        lines.push(Line::from(vec![Span::styled(
-                            format!("  {} ({} items)", group.name, item_indices.len()),
-                            Styles::emphasis(),
-                        )]));
+                        let category_emoji_icon = category_emoji(&group.name);
+                        lines.push(Line::from(vec![
+                            Span::styled("  ", Style::default()),
+                            Span::styled(format!("{} ", category_emoji_icon), Styles::secondary()),
+                            Span::styled(
+                                format!("{} ({} items)", group.name, item_indices.len()),
+                                Styles::emphasis(),
+                            ),
+                        ]));
                     }
                     // Show items directly without folder grouping
                     for &item_idx in &item_indices {
@@ -345,9 +809,9 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         } else {
                             crate::utils::to_relative_path(&item.path, &app_state.scan_path)
                         };
-                        let size_str = bytesize::to_string(item.size_bytes, true);
-                        let ago_str = if item.category == "Installed Applications" {
-                            Some(format_ago(item.last_opened))
+                        let size_str = bytesize::to_string(item.size_bytes, false);
+                        let date_str = if item.category == "Installed Applications" {
+                            Some(format_date(item.last_opened))
                         } else {
                             None
                         };
@@ -356,18 +820,60 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         } else {
                             "  "
                         };
-                        lines.push(Line::from(vec![
+                        // Add emoji based on file type
+                        let file_type = detect_file_type(&item.path);
+                        let emoji = file_type.emoji();
+
+                        // Calculate fixed widths for metadata columns
+                        // Size column: 8 chars (e.g., "793.7 MiB")
+                        // Date column: 3 chars (" | ") + up to 10 chars (e.g., "yesterday", "2mo ago")
+                        let date_width = if date_str.is_some() { 3 + 10 } else { 0 };
+                        let metadata_width = 8 + date_width;
+
+                        let fixed_prefix = indent.len()
+                            + 3 /*checkbox*/
+                            + 1 /*space*/
+                            + 3 /*emoji + space*/;
+
+                        // Calculate available width for file name - better alignment, not too far right
+                        let min_name_width = 8; // Minimum for readability
+                        let max_name_width = (inner.width as usize)
+                            .saturating_sub(fixed_prefix)
+                            .saturating_sub(metadata_width);
+
+                        let name_column_width = max_name_width.max(min_name_width);
+
+                        // Truncate file name if needed, pad to ensure metadata alignment
+                        let display_str_truncated = truncate_end(&display_str, name_column_width);
+                        let padding_needed =
+                            name_column_width.saturating_sub(display_str_truncated.chars().count());
+                        let display_str_padded =
+                            format!("{}{}", display_str_truncated, " ".repeat(padding_needed));
+
+                        let base_style = Styles::primary();
+                        let hl_style =
+                            base_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+                        let mut spans = vec![
                             Span::styled(indent, Style::default()),
                             Span::styled(checkbox, checkbox_style),
                             Span::styled(" ", Style::default()),
-                            Span::styled(display_str, Styles::primary()),
-                            Span::styled(format!("  {:>8}", size_str), Styles::secondary()),
-                            if let Some(ago) = ago_str {
-                                Span::styled(format!(" | {:>8}", ago), Styles::secondary())
+                            Span::styled(format!("{} ", emoji), Styles::secondary()),
+                        ];
+                        spans.extend(spans_with_highlight(
+                            &display_str_padded,
+                            &highlight_query,
+                            base_style,
+                            hl_style,
+                        ));
+                        spans.extend([
+                            Span::styled(format!("{:>8}", size_str), Styles::secondary()),
+                            if let Some(date) = date_str {
+                                Span::styled(format!(" | {:>10}", date), Styles::secondary())
                             } else {
                                 Span::raw("")
                             },
-                        ]));
+                        ]);
+                        lines.push(Line::from(spans));
                     }
                     if app_state.category_groups.len() > 1
                         && group_idx < app_state.category_groups.len() - 1
@@ -436,8 +942,7 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 };
                 folder_stack.clear();
 
-                let icon = if group.safe { "✓" } else { "!" };
-                let icon_style = category_style(group.safe);
+                let category_emoji_icon = category_emoji(&group.name);
 
                 let item_indices = app_state.category_item_indices(group_idx);
                 let selected_in_group = item_indices
@@ -457,10 +962,14 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                     Span::styled(format!(" {} ", prefix), row_style),
                     Span::styled(checkbox, apply_sel(checkbox_style)),
                     Span::styled(" ", row_style),
-                    Span::styled(format!("{} {} ", exp_marker, icon), apply_sel(icon_style)),
+                    Span::styled(format!("{} ", exp_marker), apply_sel(Styles::secondary())),
+                    Span::styled(
+                        format!("{} ", category_emoji_icon),
+                        apply_sel(Styles::secondary()),
+                    ),
                     Span::styled(format!("{:<12}", group.name), apply_sel(Styles::emphasis())),
                     Span::styled(
-                        format!("{:>8}", bytesize::to_string(group.total_size, true)),
+                        format!("{:>8}", bytesize::to_string(group.total_size, false)),
                         apply_sel(Styles::primary()),
                     ),
                     Span::styled("    ", apply_sel(Styles::secondary())),
@@ -534,27 +1043,41 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         }
                     }
                 }
-                let size_str = bytesize::to_string(folder.total_size, true);
+                let size_str = bytesize::to_string(folder.total_size, false);
+                let folder_emoji_icon = folder_emoji(app_state, folder);
 
                 // Indent folder headers by nesting depth.
                 let indent = format!("{base_indent}{}", "  ".repeat(depth));
-                let fixed = indent.len() + 2 /*prefix*/ + 1 /*space*/ + 3 /*checkbox*/ + 1 /*space*/ + 2 /*exp*/ + 2 /*space*/ + 2 /*two spaces before size*/ + 8 + 2 /*two spaces before count*/ + 10;
+                let fixed = indent.len() + 2 /*prefix*/ + 1 /*space*/ + 3 /*checkbox*/ + 1 /*space*/ + 2 /*exp*/ + 1 /*space*/ + 2 /*emoji + space*/ + 2 /*two spaces before size*/ + 8 + 2 /*two spaces before count*/ + 10;
                 let max_len = (inner.width as usize).saturating_sub(fixed).max(8);
                 let folder_display = truncate_end(&folder_str, max_len);
 
-                let folder_header = Line::from(vec![
+                let base_folder_style = apply_sel(Styles::emphasis());
+                let hl_folder_style = base_folder_style.add_modifier(Modifier::UNDERLINED);
+                let mut folder_header_spans = vec![
                     Span::styled(format!("{}{} ", indent, prefix), row_style),
                     Span::styled(checkbox, apply_sel(checkbox_style)),
                     Span::styled(" ", row_style),
                     Span::styled(format!("{} ", exp_marker), apply_sel(Styles::secondary())),
-                    Span::styled(folder_display, apply_sel(Styles::emphasis())),
+                    Span::styled(
+                        format!("{} ", folder_emoji_icon),
+                        apply_sel(Styles::secondary()),
+                    ),
+                ];
+                folder_header_spans.extend(spans_with_highlight(
+                    &folder_display,
+                    &highlight_query,
+                    base_folder_style,
+                    hl_folder_style,
+                ));
+                folder_header_spans.extend([
                     Span::styled(format!("  {:>8}", size_str), apply_sel(Styles::primary())),
                     Span::styled(
                         format!("  ({}/{})", selected_in_folder, total_in_folder),
                         apply_sel(Styles::secondary()),
                     ),
                 ]);
-                lines.push(folder_header);
+                lines.push(Line::from(folder_header_spans));
             }
             crate::tui::state::ResultsRow::Item { item_idx, depth } => {
                 let Some(item) = app_state.all_items.get(item_idx) else {
@@ -620,22 +1143,41 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                     pstr
                 };
 
-                let size_str = bytesize::to_string(item.size_bytes, true);
-                let ago_str = if item.category == "Installed Applications" {
-                    Some(format_ago(item.last_opened))
+                let size_str = bytesize::to_string(item.size_bytes, false);
+                let date_str = if item.category == "Installed Applications" {
+                    Some(format_date(item.last_opened))
                 } else {
                     None
                 };
 
-                let fixed = indent.len()
+                // Add emoji based on file type
+                let file_type = detect_file_type(&item.path);
+                let emoji = file_type.emoji();
+
+                // Calculate fixed widths for metadata columns
+                // Size column: 2 spaces + 8 chars (e.g., "793.7 MiB")
+                // Date column: 3 chars (" | ") + up to 10 chars (e.g., "yesterday", "2mo ago")
+                let date_width = if date_str.is_some() { 3 + 10 } else { 0 };
+                let metadata_width = 2 + 8 + date_width;
+
+                let fixed_prefix = indent.len()
                     + 3 /*prefix+spaces*/
                     + 3 /*checkbox*/
                     + 1 /*space*/
-                    + 2 /*two spaces before size*/
-                    + 8 /*size*/
-                    + if ago_str.is_some() { 3 /*" | "*/ + 8 /*ago*/ } else { 0 };
-                let max_len = (inner.width as usize).saturating_sub(fixed).max(8);
-                let path_display = truncate_end(&path_str, max_len);
+                    + 3 /*emoji + space*/;
+
+                // Calculate available width for file name - better alignment, not too far right
+                let min_name_width = 8; // Minimum for readability
+                let max_name_width = (inner.width as usize)
+                    .saturating_sub(fixed_prefix)
+                    .saturating_sub(metadata_width);
+
+                let name_column_width = max_name_width.max(min_name_width);
+
+                // Truncate file name if needed, pad to ensure metadata alignment
+                let path_display = truncate_end(&path_str, name_column_width);
+                let padding_needed = name_column_width.saturating_sub(path_display.chars().count());
+                let path_display_padded = format!("{}{}", path_display, " ".repeat(padding_needed));
 
                 // Add underline to path when cursor is on this item
                 let path_style = if is_cursor {
@@ -643,20 +1185,29 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 } else {
                     row_style
                 };
+                let path_hl_style = path_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
-                let item_line = Line::from(vec![
+                let mut item_spans = vec![
                     Span::styled(format!("{}{} ", indent, prefix), row_style),
                     Span::styled(checkbox, apply_sel(checkbox_style)),
                     Span::styled(" ", row_style),
-                    Span::styled(path_display, path_style),
+                    Span::styled(format!("{} ", emoji), apply_sel(Styles::secondary())),
+                ];
+                item_spans.extend(spans_with_highlight(
+                    &path_display_padded,
+                    &highlight_query,
+                    path_style,
+                    path_hl_style,
+                ));
+                item_spans.extend([
                     Span::styled(format!("  {:>8}", size_str), apply_sel(Styles::secondary())),
-                    if let Some(ago) = ago_str {
-                        Span::styled(format!(" | {:>8}", ago), apply_sel(Styles::secondary()))
+                    if let Some(date) = date_str {
+                        Span::styled(format!(" | {:>10}", date), apply_sel(Styles::secondary()))
                     } else {
                         Span::raw("")
                     },
                 ]);
-                lines.push(item_line);
+                lines.push(Line::from(item_spans));
             }
             crate::tui::state::ResultsRow::Spacer => {
                 folder_stack.clear();

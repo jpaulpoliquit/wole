@@ -84,7 +84,7 @@ pub enum ConfirmRow {
 }
 
 /// Current screen being displayed
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Screen {
     Dashboard,
     Config,
@@ -120,6 +120,7 @@ pub enum Screen {
         current_path: PathBuf,
         cursor: usize,
         sort_by: crate::disk_usage::SortBy,
+        selected_paths: std::collections::HashSet<PathBuf>,
     },
     Optimize {
         cursor: usize,
@@ -131,7 +132,86 @@ pub enum Screen {
     Status {
         status: Box<crate::status::SystemStatus>,
         last_refresh: std::time::Instant,
+        status_receiver:
+            Option<std::sync::mpsc::Receiver<anyhow::Result<crate::status::SystemStatus>>>,
     },
+}
+
+impl Clone for Screen {
+    fn clone(&self) -> Self {
+        match self {
+            Screen::Dashboard => Screen::Dashboard,
+            Screen::Config => Screen::Config,
+            Screen::Scanning { progress } => Screen::Scanning {
+                progress: progress.clone(),
+            },
+            Screen::Results => Screen::Results,
+            Screen::Preview { index } => Screen::Preview { index: *index },
+            Screen::Confirm { permanent } => Screen::Confirm {
+                permanent: *permanent,
+            },
+            Screen::Cleaning { progress } => Screen::Cleaning {
+                progress: progress.clone(),
+            },
+            Screen::Success {
+                cleaned,
+                cleaned_bytes,
+                errors,
+                failed_temp_files,
+            } => Screen::Success {
+                cleaned: *cleaned,
+                cleaned_bytes: *cleaned_bytes,
+                errors: *errors,
+                failed_temp_files: failed_temp_files.clone(),
+            },
+            Screen::RestoreSelection { cursor } => Screen::RestoreSelection { cursor: *cursor },
+            Screen::Restore {
+                progress,
+                result,
+                restore_all_bin,
+            } => Screen::Restore {
+                progress: progress.clone(),
+                result: result.clone(),
+                restore_all_bin: *restore_all_bin,
+            },
+            Screen::DiskInsights {
+                insights,
+                current_path,
+                cursor,
+                sort_by,
+                selected_paths,
+            } => Screen::DiskInsights {
+                insights: insights.clone(),
+                current_path: current_path.clone(),
+                cursor: *cursor,
+                sort_by: *sort_by,
+                selected_paths: selected_paths.clone(),
+            },
+            Screen::Optimize {
+                cursor,
+                selected,
+                results,
+                running,
+                message,
+            } => Screen::Optimize {
+                cursor: *cursor,
+                selected: selected.clone(),
+                results: results.clone(),
+                running: *running,
+                message: message.clone(),
+            },
+            Screen::Status {
+                status,
+                last_refresh,
+                status_receiver: _,
+            } => Screen::Status {
+                status: status.clone(),
+                last_refresh: *last_refresh,
+                // Receiver cannot be cloned, so set to None
+                status_receiver: None,
+            },
+        }
+    }
 }
 
 /// Result of a restore operation
@@ -149,10 +229,12 @@ pub struct RestoreResult {
 pub struct ScanProgress {
     pub current_category: String,
     pub current_path: Option<PathBuf>,
+    pub notice: Option<String>,
     pub category_progress: Vec<CategoryProgress>,
     pub total_scanned: usize,
     pub total_found: usize,
     pub total_size: u64,
+    pub start_time: std::time::Instant,
 }
 
 /// Progress for a single category during scan
@@ -196,49 +278,9 @@ pub struct CategoryDef {
 }
 
 /// Central category definitions - single source of truth for all category names
+/// Ordered for dashboard: Quick Clean -> Developer Cleanup -> Space Hunters -> Advanced
 pub const CATEGORIES: &[CategoryDef] = &[
-    CategoryDef {
-        name: "System Cache",
-        scan_field: "system",
-        safe: true,
-        default_enabled: true,
-        description: "Windows system caches",
-    },
-    CategoryDef {
-        name: "Browser Cache",
-        scan_field: "browser",
-        safe: true,
-        default_enabled: true,
-        description: "Browser caches",
-    },
-    CategoryDef {
-        name: "Temp Files",
-        scan_field: "temp",
-        safe: true,
-        default_enabled: true,
-        description: "System temp folders",
-    },
-    CategoryDef {
-        name: "Package Cache",
-        scan_field: "cache",
-        safe: true,
-        default_enabled: true,
-        description: "Package manager caches (npm, pip, nuget, etc.)",
-    },
-    CategoryDef {
-        name: "Application Cache",
-        scan_field: "app_cache",
-        safe: true,
-        default_enabled: true,
-        description: "Application caches (Discord, VS Code, Slack, etc.)",
-    },
-    CategoryDef {
-        name: "Build Artifacts",
-        scan_field: "build",
-        safe: true,
-        default_enabled: true,
-        description: "node_modules, target, .next",
-    },
+    // A. Quick Clean (safe, minimal side effects)
     CategoryDef {
         name: "Trash",
         scan_field: "trash",
@@ -247,25 +289,69 @@ pub const CATEGORIES: &[CategoryDef] = &[
         description: "Recycle Bin contents",
     },
     CategoryDef {
+        name: "Temp Files",
+        scan_field: "temp",
+        safe: true,
+        default_enabled: true,
+        description: "Temporary system files",
+    },
+    CategoryDef {
+        name: "Browser Cache",
+        scan_field: "browser",
+        safe: true,
+        default_enabled: true,
+        description: "Web browser data cache",
+    },
+    CategoryDef {
+        name: "Application Cache",
+        scan_field: "app_cache",
+        safe: true,
+        default_enabled: true,
+        description: "App data cache (Notion, VS Code, Slack, etc.)",
+    },
+    CategoryDef {
+        name: "System Cache",
+        scan_field: "system",
+        safe: true,
+        default_enabled: true,
+        description: "Windows system cache files",
+    },
+    CategoryDef {
         name: "Empty Folders",
         scan_field: "empty",
         safe: true,
+        default_enabled: true,
+        description: "Directories with no files",
+    },
+    // B. Developer Cleanup (safe, but may trigger rebuilds / re-downloads)
+    CategoryDef {
+        name: "Build Artifacts",
+        scan_field: "build",
+        safe: true,
+        default_enabled: true,
+        description: "node_modules, target, .next",
+    },
+    CategoryDef {
+        name: "Package Cache",
+        scan_field: "cache",
+        safe: true,
         default_enabled: false,
-        description: "Empty folders",
+        description: "Package manager cache (npm, pip, nuget, etc.)",
+    },
+    // C. Space Hunters (review required, biggest wins)
+    CategoryDef {
+        name: "Installed Applications",
+        scan_field: "applications",
+        safe: false,
+        default_enabled: false,
+        description: "Uninstallable programs",
     },
     CategoryDef {
         name: "Old Downloads",
         scan_field: "downloads",
         safe: false,
         default_enabled: false,
-        description: "Old files in Downloads",
-    },
-    CategoryDef {
-        name: "Old Files",
-        scan_field: "old",
-        safe: false,
-        default_enabled: false,
-        description: "Files not accessed in X days",
+        description: "Unused download files",
     },
     CategoryDef {
         name: "Large Files",
@@ -275,32 +361,33 @@ pub const CATEGORIES: &[CategoryDef] = &[
         description: "Files over size threshold",
     },
     CategoryDef {
+        name: "Old Files",
+        scan_field: "old",
+        safe: false,
+        default_enabled: false,
+        description: "Files not accessed in X days",
+    },
+    CategoryDef {
         name: "Duplicates",
         scan_field: "duplicates",
         safe: false,
         default_enabled: false,
-        description: "Duplicate files",
+        description: "Identical file copies",
     },
-    CategoryDef {
-        name: "Installed Applications",
-        scan_field: "applications",
-        safe: false,
-        default_enabled: false,
-        description: "Installed applications",
-    },
+    // D. Advanced (admin / system)
     CategoryDef {
         name: "Windows Update",
         scan_field: "windows_update",
         safe: false,
         default_enabled: false,
-        description: "Windows Update files (requires admin)",
+        description: "Update installation files (requires admin)",
     },
     CategoryDef {
         name: "Event Logs",
         scan_field: "event_logs",
         safe: false,
         default_enabled: false,
-        description: "Windows Event Log files (requires admin)",
+        description: "System event logs (requires admin)",
     },
 ];
 
@@ -342,11 +429,11 @@ pub struct CategoryGroup {
 }
 
 #[derive(Debug, Clone)]
-struct FolderHierarchy {
+pub(crate) struct FolderHierarchy {
     /// Root folder indices (no parent).
-    roots: Vec<usize>,
+    pub(crate) roots: Vec<usize>,
     /// children[parent] = list of folder indices.
-    children: Vec<Vec<usize>>,
+    pub(crate) children: Vec<Vec<usize>>,
 }
 
 fn normalize_folder_key(key: &str) -> String {
@@ -369,7 +456,31 @@ fn folder_key_for_display(scan_path: &Path, folder_name: &str) -> String {
     crate::utils::to_relative_path(&folder_path, scan_path)
 }
 
-fn build_folder_hierarchy(
+/// Get dashboard order index for a category (respects the order defined in CATEGORIES array)
+/// Returns the index in CATEGORIES array, or usize::MAX if not found
+fn dashboard_order_index(category_name: &str) -> usize {
+    CATEGORIES
+        .iter()
+        .position(|cat| cat.name == category_name)
+        .unwrap_or(usize::MAX)
+}
+
+/// Get group priority for results screen sorting
+/// Returns: 1 = Review (biggest wins), 2 = Safe, 3 = Admin/System
+fn results_group_priority(category_name: &str, safe: bool) -> u8 {
+    // Admin/system categories
+    if category_name == "Windows Update" || category_name == "Event Logs" {
+        return 3;
+    }
+    // Review categories (not safe, not admin)
+    if !safe {
+        return 1;
+    }
+    // Safe categories
+    2
+}
+
+pub(crate) fn build_folder_hierarchy(
     scan_path: &Path,
     group_name: &str,
     folder_groups: &[FolderGroup],
@@ -458,8 +569,10 @@ pub struct AppState {
     pub confirm_groups_cache: Vec<CategoryGroup>, // cached category groups for confirm screen (stable ordering)
     pub search_mode: bool,                        // whether search mode is active
     pub search_query: String,                     // current search query
-    pub dashboard_message: Option<String>,        // temporary message for dashboard (e.g. warnings)
+    pub search_navigated: bool, // true if user navigated while in search mode (space should toggle selection)
+    pub dashboard_message: Option<String>, // temporary message for dashboard (e.g. warnings)
     pub last_scan_categories: Option<std::collections::HashSet<String>>, // categories enabled during last scan (for result reuse)
+    pub first_scan_stats: Option<(usize, u64)>, // (total_files, total_storage) for first scan summary
 }
 
 /// A single result item for display in the table
@@ -501,31 +614,49 @@ impl AppState {
         };
 
         // Build categories list with config defaults
-        let default_enabled: std::collections::HashSet<String> = config
+        // Normalize config category names to lowercase with underscores for comparison
+        let config_enabled: std::collections::HashSet<String> = config
             .categories
             .default_enabled
             .iter()
-            .map(|s| s.to_lowercase())
+            .map(|s| s.to_lowercase().replace(" ", "_"))
             .collect();
 
-        // Categories organized logically:
-        // 1. System & Browser Caches (safe, system-level)
-        // 2. Application Caches (safe, app-level)
-        // 3. Build Artifacts (safe for inactive projects)
-        // 4. System Cleanup (safe)
-        // 5. User Files (requires review)
-        // 6. Applications (requires review - uninstalling apps)
-        // Use central CATEGORIES constant as single source of truth
+        // Expected Quick Clean categories that should be enabled by default
+        let expected_quick_clean: std::collections::HashSet<String> = [
+            "trash",
+            "temp_files",
+            "browser_cache",
+            "application_cache",
+            "system_cache",
+            "empty_folders",
+            "build_artifacts",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
-        // If config specifies default_enabled, use those; otherwise use hardcoded defaults
-        let use_config_defaults = !default_enabled.is_empty();
+        // Check if config has all expected Quick Clean categories (indicates complete config)
+        let config_is_complete = !config_enabled.is_empty()
+            && expected_quick_clean
+                .iter()
+                .all(|cat| config_enabled.contains(cat));
+
+        // Use central CATEGORIES constant as single source of truth
+        // Strategy:
+        // - If config is empty OR incomplete (missing Quick Clean categories), use hardcoded defaults
+        // - If config is complete, use config values (user has customized)
+        let use_config = config_is_complete;
 
         let categories = CATEGORIES
             .iter()
             .map(|cat_def| {
-                let enabled = if use_config_defaults {
-                    default_enabled.contains(&cat_def.name.to_lowercase().replace(" ", "_"))
+                let cat_key = cat_def.name.to_lowercase().replace(" ", "_");
+                let enabled = if use_config {
+                    // Config is complete - use config value
+                    config_enabled.contains(&cat_key)
                 } else {
+                    // Config is empty or incomplete - use hardcoded default
                     cat_def.default_enabled
                 };
 
@@ -570,8 +701,10 @@ impl AppState {
             confirm_groups_cache: Vec::new(), // Cached category groups for confirm screen
             search_mode: false,
             search_query: String::new(),
+            search_navigated: false,
             dashboard_message: None,
             last_scan_categories: None, // No previous scan initially
+            first_scan_stats: None,     // No first scan stats initially
         }
     }
 
@@ -1308,11 +1441,37 @@ impl AppState {
                 );
             }
 
-            // Sort category groups by size descending, then by name for stable ordering when sizes are equal
+            // Sort category groups for results screen:
+            // First: Respect dashboard order (Quick Clean -> Developer Cleanup -> Space Hunters -> Advanced)
+            // Then: Within dashboard order, sort by size descending
             self.category_groups.sort_by(|a, b| {
+                // Get dashboard order indices (lower = appears earlier in dashboard)
+                let a_order = dashboard_order_index(&a.name);
+                let b_order = dashboard_order_index(&b.name);
+                let order_cmp = a_order.cmp(&b_order);
+                if order_cmp != std::cmp::Ordering::Equal {
+                    return order_cmp;
+                }
+                // Within same dashboard position, sort by size descending
                 let size_cmp = b.total_size.cmp(&a.total_size);
                 if size_cmp == std::cmp::Ordering::Equal {
-                    a.name.cmp(&b.name) // Secondary sort by name for stability
+                    // Then by item count descending
+                    let a_count = if a.grouped_by_folder {
+                        a.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                    } else {
+                        a.items.len()
+                    };
+                    let b_count = if b.grouped_by_folder {
+                        b.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                    } else {
+                        b.items.len()
+                    };
+                    let count_cmp = b_count.cmp(&a_count);
+                    if count_cmp == std::cmp::Ordering::Equal {
+                        a.name.cmp(&b.name) // Finally by name ascending for stability
+                    } else {
+                        count_cmp
+                    }
                 } else {
                     size_cmp
                 }
@@ -1328,9 +1487,19 @@ impl AppState {
                     .push(idx);
             }
 
-            // Auto-select safe items
+            // Clear all selections first
+            self.selected_items.clear();
+
+            // Build a set of safe category names for quick lookup
+            let safe_categories: std::collections::HashSet<String> = CATEGORIES
+                .iter()
+                .filter(|cat| cat.safe)
+                .map(|cat| cat.name.to_string())
+                .collect();
+
+            // Auto-select items from safe categories only
             for (i, item) in self.all_items.iter().enumerate() {
-                if item.safe {
+                if safe_categories.contains(&item.category) {
                     self.selected_items.insert(i);
                 }
             }
@@ -1501,14 +1670,205 @@ impl AppState {
         rows
     }
 
+    /// Parse search query to extract type filter and text query
+    /// Returns (type_filter, extension_filter, text_query) where:
+    /// - type_filter is Some(FileType) if /type: syntax matches a file type category
+    /// - extension_filter is Some(extension) if /type: syntax specifies an exact extension
+    fn parse_search_query(&self) -> (Option<crate::utils::FileType>, Option<String>, String) {
+        let query = self.search_query.trim();
+        if query.is_empty() {
+            return (None, None, String::new());
+        }
+
+        // Check for /type: syntax
+        if let Some(type_part) = query.strip_prefix("/type:") {
+            let type_part = type_part.trim();
+            // Split on space to separate type from text query
+            let (type_str, text_query) = if let Some(space_idx) = type_part.find(' ') {
+                let type_str = type_part[..space_idx].trim().to_lowercase();
+                let text = type_part[space_idx..].trim().to_string();
+                (type_str, text)
+            } else {
+                (type_part.to_lowercase(), String::new())
+            };
+
+            // Check if it's an extension (starts with . or is short and looks like extension)
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
+            if is_extension {
+                // Extract extension (remove leading dot if present)
+                let ext = type_str.strip_prefix('.').unwrap_or(&type_str).to_string();
+                return (None, Some(ext), text_query);
+            } else {
+                // Try to match as file type category
+                let file_type = self.match_file_type_string(&type_str);
+                return (file_type, None, text_query);
+            }
+        }
+
+        // Check for type: syntax (without leading slash)
+        if let Some(type_part) = query.strip_prefix("type:") {
+            let type_part = type_part.trim();
+            let (type_str, text_query) = if let Some(space_idx) = type_part.find(' ') {
+                let type_str = type_part[..space_idx].trim().to_lowercase();
+                let text = type_part[space_idx..].trim().to_string();
+                (type_str, text)
+            } else {
+                (type_part.to_lowercase(), String::new())
+            };
+
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
+            if is_extension {
+                let ext = type_str.strip_prefix('.').unwrap_or(&type_str).to_string();
+                return (None, Some(ext), text_query);
+            } else {
+                let file_type = self.match_file_type_string(&type_str);
+                return (file_type, None, text_query);
+            }
+        }
+
+        // Regular text query
+        (None, None, query.to_lowercase())
+    }
+
+    /// Match a string to a FileType enum value (case-insensitive, partial match)
+    /// Also supports file extensions like ".jpg", "jpg", ".mp4", etc.
+    fn match_file_type_string(&self, type_str: &str) -> Option<crate::utils::FileType> {
+        use crate::utils::FileType;
+        let type_lower = type_str.to_lowercase();
+
+        // If it starts with ., definitely treat as extension
+        if let Some(ext) = type_lower.strip_prefix('.') {
+            let test_path_str = format!("file.{}", ext);
+            let test_path = std::path::Path::new(&test_path_str);
+            let detected_type = crate::utils::detect_file_type(test_path);
+            if detected_type != FileType::Other {
+                return Some(detected_type);
+            }
+            return None;
+        }
+
+        // Try exact match for type names first
+        let type_match = match type_lower.as_str() {
+            "video" => Some(FileType::Video),
+            "audio" => Some(FileType::Audio),
+            "image" => Some(FileType::Image),
+            "diskimage" | "disk image" | "disk" => Some(FileType::DiskImage),
+            "archive" => Some(FileType::Archive),
+            "installer" => Some(FileType::Installer),
+            "document" | "doc" => Some(FileType::Document),
+            "spreadsheet" | "sheet" => Some(FileType::Spreadsheet),
+            "presentation" | "pres" => Some(FileType::Presentation),
+            "code" | "source" | "src" => Some(FileType::Code),
+            "text" => Some(FileType::Text),
+            "database" | "db" => Some(FileType::Database),
+            "backup" => Some(FileType::Backup),
+            "font" | "fonts" => Some(FileType::Font),
+            "log" | "logs" => Some(FileType::Log),
+            "certificate" | "cert" | "crypto" => Some(FileType::Certificate),
+            "system" | "sys" => Some(FileType::System),
+            "build" => Some(FileType::Build),
+            "subtitle" | "sub" | "subs" => Some(FileType::Subtitle),
+            "cad" => Some(FileType::CAD),
+            "3d" | "3dmodel" | "3d model" | "model" => Some(FileType::Model3D),
+            "gis" | "map" | "maps" => Some(FileType::GIS),
+            "vm" | "virtualmachine" | "virtual machine" => Some(FileType::VirtualMachine),
+            "container" | "docker" => Some(FileType::Container),
+            "webasset" | "web asset" | "web" => Some(FileType::WebAsset),
+            "game" | "games" => Some(FileType::Game),
+            "other" => Some(FileType::Other),
+            _ => None,
+        };
+
+        // If type name matched, return it
+        if type_match.is_some() {
+            return type_match;
+        }
+
+        // If no type name match and it's a short string (likely an extension), try as extension
+        if type_lower.len() <= 4 && !type_lower.contains(' ') {
+            let test_path_str = format!("file.{}", type_lower);
+            let test_path = std::path::Path::new(&test_path_str);
+            let detected_type = crate::utils::detect_file_type(test_path);
+            if detected_type != FileType::Other {
+                return Some(detected_type);
+            }
+        }
+
+        None
+    }
+
     /// Get results rows filtered by search query.
     /// Returns all rows if search_query is empty.
     /// Only shows category/folder headers if they contain matching items.
+    /// Supports /type:{filetype} syntax for filtering by file type.
     pub fn filtered_results_rows(&self) -> Vec<ResultsRow> {
         let query = self.search_query.trim().to_lowercase();
         if query.is_empty() {
             return self.results_rows();
         }
+
+        let (type_filter, extension_filter, text_query) = self.parse_search_query();
+
+        // Clone extension filter for use in closure
+        let extension_filter_clone = extension_filter.clone();
 
         let mut filtered = Vec::new();
         let skip_category_header = self.category_groups.len() == 1;
@@ -1516,14 +1876,40 @@ impl AppState {
         // Helper to check if an item matches the query
         let item_matches = |item_idx: usize| -> bool {
             if let Some(item) = self.all_items.get(item_idx) {
-                let path_str = item.path.display().to_string().to_lowercase();
-                if path_str.contains(&query) {
-                    return true;
+                // Check extension filter first (exact match)
+                if let Some(ref filter_ext) = extension_filter_clone {
+                    if let Some(item_ext) = item.path.extension().and_then(|e| e.to_str()) {
+                        if item_ext.to_lowercase() != *filter_ext {
+                            return false;
+                        }
+                    } else {
+                        // Item has no extension, but we're filtering by extension
+                        return false;
+                    }
                 }
-                if let Some(display_name) = item.display_name.as_ref() {
-                    return display_name.to_lowercase().contains(&query);
+
+                // Check type filter (category-based)
+                if let Some(filter_type) = type_filter {
+                    let item_type = crate::utils::detect_file_type(&item.path);
+                    if item_type != filter_type {
+                        return false;
+                    }
                 }
-                false
+
+                // Check text query if present
+                if !text_query.is_empty() {
+                    let path_str = item.path.display().to_string().to_lowercase();
+                    if path_str.contains(&text_query) {
+                        return true;
+                    }
+                    if let Some(display_name) = item.display_name.as_ref() {
+                        return display_name.to_lowercase().contains(&text_query);
+                    }
+                    return false;
+                }
+
+                // If only type/extension filter (and it matched), return true
+                true
             } else {
                 false
             }
@@ -2319,11 +2705,37 @@ impl AppState {
             });
         }
 
-        // Sort by size descending, then by category name for stable ordering when sizes are equal
+        // Sort category groups for results screen:
+        // First: Respect dashboard order (Quick Clean -> Developer Cleanup -> Space Hunters -> Advanced)
+        // Then: Within dashboard order, sort by size descending
         groups.sort_by(|a, b| {
+            // Get dashboard order indices (lower = appears earlier in dashboard)
+            let a_order = dashboard_order_index(&a.name);
+            let b_order = dashboard_order_index(&b.name);
+            let order_cmp = a_order.cmp(&b_order);
+            if order_cmp != std::cmp::Ordering::Equal {
+                return order_cmp;
+            }
+            // Within same dashboard position, sort by size descending
             let size_cmp = b.total_size.cmp(&a.total_size);
             if size_cmp == std::cmp::Ordering::Equal {
-                a.name.cmp(&b.name) // Secondary sort by name for stability
+                // Then by item count descending
+                let a_count = if a.grouped_by_folder {
+                    a.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                } else {
+                    a.items.len()
+                };
+                let b_count = if b.grouped_by_folder {
+                    b.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                } else {
+                    b.items.len()
+                };
+                let count_cmp = b_count.cmp(&a_count);
+                if count_cmp == std::cmp::Ordering::Equal {
+                    a.name.cmp(&b.name) // Finally by name ascending for stability
+                } else {
+                    count_cmp
+                }
             } else {
                 size_cmp
             }
@@ -2488,12 +2900,13 @@ impl AppState {
     }
 
     /// Get all item indices belonging to a given category group.
+    /// If search_query is active, only returns items that match the filter.
     pub fn category_item_indices(&self, group_idx: usize) -> Vec<usize> {
         let Some(group) = self.category_groups.get(group_idx) else {
             return Vec::new();
         };
 
-        if group.grouped_by_folder {
+        let all_items = if group.grouped_by_folder {
             group
                 .folder_groups
                 .iter()
@@ -2501,18 +2914,140 @@ impl AppState {
                 .collect()
         } else {
             group.items.clone()
+        };
+
+        // If search query is active, filter items to only include matches
+        if !self.search_query.trim().is_empty() {
+            let (type_filter, extension_filter, text_query) = self.parse_search_query();
+            let extension_filter_clone = extension_filter.clone();
+
+            all_items
+                .into_iter()
+                .filter(|&item_idx| {
+                    if let Some(item) = self.all_items.get(item_idx) {
+                        // Check extension filter first (exact match)
+                        if let Some(ref filter_ext) = extension_filter_clone {
+                            if let Some(item_ext) = item.path.extension().and_then(|e| e.to_str()) {
+                                if item_ext.to_lowercase() != *filter_ext {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+
+                        // Check type filter (category-based)
+                        if let Some(filter_type) = type_filter {
+                            let item_type = crate::utils::detect_file_type(&item.path);
+                            if item_type != filter_type {
+                                return false;
+                            }
+                        }
+
+                        // Check text query if present
+                        if !text_query.is_empty() {
+                            let path_str = item.path.display().to_string().to_lowercase();
+                            if path_str.contains(&text_query) {
+                                return true;
+                            }
+                            if let Some(display_name) = item.display_name.as_ref() {
+                                return display_name.to_lowercase().contains(&text_query);
+                            }
+                            return false;
+                        }
+
+                        // If only type/extension filter (and it matched), return true
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect()
+        } else {
+            all_items
         }
     }
 
     /// Get all item indices belonging to a folder group within a category group.
+    /// Includes items from child folders recursively.
+    /// If search_query is active, only returns items that match the filter.
     pub fn folder_item_indices(&self, group_idx: usize, folder_idx: usize) -> Vec<usize> {
         let Some(group) = self.category_groups.get(group_idx) else {
             return Vec::new();
         };
-        let Some(folder) = group.folder_groups.get(folder_idx) else {
+        if group.folder_groups.is_empty() {
             return Vec::new();
-        };
-        folder.items.clone()
+        }
+
+        // Build folder hierarchy to find children
+        let scan_path = &self.scan_path;
+        let hierarchy = build_folder_hierarchy(scan_path, &group.name, &group.folder_groups);
+
+        // Recursively collect items from this folder and all its children
+        fn collect_subtree_items(
+            folder_idx: usize,
+            group: &CategoryGroup,
+            children: &[Vec<usize>],
+        ) -> Vec<usize> {
+            let mut items = group.folder_groups[folder_idx].items.clone();
+            for &child_idx in &children[folder_idx] {
+                items.extend(collect_subtree_items(child_idx, group, children));
+            }
+            items
+        }
+
+        let all_items = collect_subtree_items(folder_idx, group, &hierarchy.children);
+
+        // If search query is active, filter items to only include matches
+        if !self.search_query.trim().is_empty() {
+            let (type_filter, extension_filter, text_query) = self.parse_search_query();
+            let extension_filter_clone = extension_filter.clone();
+
+            all_items
+                .into_iter()
+                .filter(|&item_idx| {
+                    if let Some(item) = self.all_items.get(item_idx) {
+                        // Check extension filter first (exact match)
+                        if let Some(ref filter_ext) = extension_filter_clone {
+                            if let Some(item_ext) = item.path.extension().and_then(|e| e.to_str()) {
+                                if item_ext.to_lowercase() != *filter_ext {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        }
+
+                        // Check type filter (category-based)
+                        if let Some(filter_type) = type_filter {
+                            let item_type = crate::utils::detect_file_type(&item.path);
+                            if item_type != filter_type {
+                                return false;
+                            }
+                        }
+
+                        // Check text query if present
+                        if !text_query.is_empty() {
+                            let path_str = item.path.display().to_string().to_lowercase();
+                            if path_str.contains(&text_query) {
+                                return true;
+                            }
+                            if let Some(display_name) = item.display_name.as_ref() {
+                                return display_name.to_lowercase().contains(&text_query);
+                            }
+                            return false;
+                        }
+
+                        // If only type/extension filter (and it matched), return true
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .collect()
+        } else {
+            all_items
+        }
     }
 
     /// Rebuild `category_groups` from the current `all_items` indices.
@@ -2888,12 +3423,37 @@ impl AppState {
             });
         }
 
-        // Keep biggest categories at the top (matches initial scan behavior).
-        // Sort by size descending, then by name for stable ordering when sizes are equal
+        // Sort category groups for results screen:
+        // Group 1: Review categories (sorted by size desc)
+        // Group 2: Safe categories (sorted by size desc)
+        // Group 3: Admin/system categories (sorted by size desc)
         self.category_groups.sort_by(|a, b| {
+            let a_priority = results_group_priority(&a.name, a.safe);
+            let b_priority = results_group_priority(&b.name, b.safe);
+            let priority_cmp = a_priority.cmp(&b_priority);
+            if priority_cmp != std::cmp::Ordering::Equal {
+                return priority_cmp;
+            }
+            // Within same group, sort by size descending
             let size_cmp = b.total_size.cmp(&a.total_size);
             if size_cmp == std::cmp::Ordering::Equal {
-                a.name.cmp(&b.name) // Secondary sort by name for stability
+                // Then by item count descending
+                let a_count = if a.grouped_by_folder {
+                    a.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                } else {
+                    a.items.len()
+                };
+                let b_count = if b.grouped_by_folder {
+                    b.folder_groups.iter().map(|fg| fg.items.len()).sum()
+                } else {
+                    b.items.len()
+                };
+                let count_cmp = b_count.cmp(&a_count);
+                if count_cmp == std::cmp::Ordering::Equal {
+                    a.name.cmp(&b.name) // Finally by name ascending for stability
+                } else {
+                    count_cmp
+                }
             } else {
                 size_cmp
             }

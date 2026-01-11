@@ -345,15 +345,34 @@ pub fn calculate_shallow_size(path: &Path) -> u64 {
 }
 
 /// File type categories for large file detection
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FileType {
     Video,
+    Audio,
+    Image,
     DiskImage,
     Archive,
     Installer,
     Document,
+    Spreadsheet,
+    Presentation,
+    Code,
+    Text,
     Database,
     Backup,
+    Font,
+    Log,
+    Certificate,
+    System,
+    Build,
+    Subtitle,
+    CAD,
+    Model3D,
+    GIS,
+    VirtualMachine,
+    Container,
+    WebAsset,
+    Game,
     Other,
 }
 
@@ -361,12 +380,31 @@ impl FileType {
     pub fn as_str(&self) -> &'static str {
         match self {
             FileType::Video => "Video",
+            FileType::Audio => "Audio",
+            FileType::Image => "Image",
             FileType::DiskImage => "Disk Image",
             FileType::Archive => "Archive",
             FileType::Installer => "Installer",
             FileType::Document => "Document",
+            FileType::Spreadsheet => "Spreadsheet",
+            FileType::Presentation => "Presentation",
+            FileType::Code => "Code",
+            FileType::Text => "Text",
             FileType::Database => "Database",
             FileType::Backup => "Backup",
+            FileType::Font => "Font",
+            FileType::Log => "Log",
+            FileType::Certificate => "Certificate",
+            FileType::System => "System",
+            FileType::Build => "Build",
+            FileType::Subtitle => "Subtitle",
+            FileType::CAD => "CAD",
+            FileType::Model3D => "3D Model",
+            FileType::GIS => "GIS",
+            FileType::VirtualMachine => "Virtual Machine",
+            FileType::Container => "Container",
+            FileType::WebAsset => "Web Asset",
+            FileType::Game => "Game",
             FileType::Other => "Other",
         }
     }
@@ -374,19 +412,134 @@ impl FileType {
     pub fn emoji(&self) -> &'static str {
         match self {
             FileType::Video => "🎬",
+            FileType::Audio => "🎵",
+            FileType::Image => "🖼️",
             FileType::DiskImage => "💿",
             FileType::Archive => "📦",
             FileType::Installer => "📥",
             FileType::Document => "📄",
+            FileType::Spreadsheet => "📊",
+            FileType::Presentation => "📽️",
+            FileType::Code => "💻",
+            FileType::Text => "📝",
             FileType::Database => "🗃️",
             FileType::Backup => "💾",
+            FileType::Font => "🔤",
+            FileType::Log => "📋",
+            FileType::Certificate => "🔒",
+            FileType::System => "⚙️",
+            FileType::Build => "🔨",
+            FileType::Subtitle => "📺",
+            FileType::CAD => "📐",
+            FileType::Model3D => "🎨",
+            FileType::GIS => "🗺️",
+            FileType::VirtualMachine => "🖥️",
+            FileType::Container => "📦",
+            FileType::WebAsset => "🌐",
+            FileType::Game => "🎮",
             FileType::Other => "📁",
         }
     }
 }
 
 /// Detect file type based on extension
+/// Handles multiple extensions (e.g., .tar.gz, .min.js) by checking both last and second-to-last extensions
 pub fn detect_file_type(path: &Path) -> FileType {
+    // Get file name as string for analysis
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_lowercase());
+
+    // Handle files without extensions
+    if file_name.is_none() {
+        return FileType::Other;
+    }
+
+    let file_name_str = file_name.unwrap();
+
+    // Check for files without extensions but with known names
+    let no_ext_files: &[(&str, FileType)] = &[
+        // Container files
+        ("dockerfile", FileType::Container),
+        ("containerfile", FileType::Container),
+        ("dockerignore", FileType::Container),
+        // Build files
+        ("makefile", FileType::Code),
+        ("cmakelists", FileType::Code),
+        ("rakefile", FileType::Code),
+        ("gemfile", FileType::Code),
+        ("podfile", FileType::Code),
+        ("cartfile", FileType::Code),
+        ("build", FileType::Code),
+        // Version control
+        ("gitignore", FileType::Code),
+        ("gitattributes", FileType::Code),
+        ("gitconfig", FileType::Code),
+        ("gitmodules", FileType::Code),
+        ("gitkeep", FileType::Code),
+        // Config files
+        ("editorconfig", FileType::Code),
+        ("eslintrc", FileType::Code),
+        ("prettierrc", FileType::Code),
+        ("babelrc", FileType::Code),
+        ("npmrc", FileType::Code),
+        ("yarnrc", FileType::Code),
+        ("nvmrc", FileType::Code),
+        ("node-version", FileType::Code),
+        ("env", FileType::Code),
+        (".env", FileType::Code),
+        // Shell config
+        ("zshrc", FileType::Code),
+        ("bashrc", FileType::Code),
+        ("profile", FileType::Code),
+        ("bash_profile", FileType::Code),
+        ("vimrc", FileType::Code),
+        ("gvimrc", FileType::Code),
+        ("init.vim", FileType::Code),
+        ("init.lua", FileType::Code),
+    ];
+
+    // Check files without extensions
+    for (name, file_type) in no_ext_files {
+        if file_name_str == *name || file_name_str == name.to_uppercase() {
+            return *file_type;
+        }
+    }
+
+    // Check for multiple extensions (e.g., .tar.gz, .min.js, .backup.bak)
+    // Common double extensions that should be checked first
+    let double_extensions: &[(&str, FileType)] = &[
+        ("tar.gz", FileType::Archive),
+        ("tar.bz2", FileType::Archive),
+        ("tar.xz", FileType::Archive),
+        ("tar.z", FileType::Archive),
+        ("tar.lz", FileType::Archive),
+        ("tar.lzma", FileType::Archive),
+        ("tar.zst", FileType::Archive),
+        ("min.js", FileType::Code),
+        ("min.css", FileType::Code),
+        ("bundle.js", FileType::Code),
+        ("bundle.css", FileType::Code),
+        ("backup.bak", FileType::Backup),
+        ("backup.old", FileType::Backup),
+        ("backup.tmp", FileType::Backup),
+        ("sql.gz", FileType::Database),
+        ("sql.bz2", FileType::Database),
+        ("db.backup", FileType::Backup),
+        ("log.gz", FileType::Log),
+        ("log.bz2", FileType::Log),
+        ("log.zip", FileType::Log),
+    ];
+
+    // Check double extensions first
+    for (double_ext, file_type) in double_extensions {
+        if file_name_str.ends_with(&format!(".{}", double_ext)) {
+            return *file_type;
+        }
+    }
+
+    // Get primary extension (last extension)
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -394,25 +547,193 @@ pub fn detect_file_type(path: &Path) -> FileType {
 
     match ext.as_deref() {
         // Video files
-        Some("mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "mpg" | "mpeg") => {
-            FileType::Video
-        }
+        Some(
+            "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "m4v" | "mpg" | "mpeg"
+            | "3gp" | "3g2" | "asf" | "rm" | "rmvb" | "vob" | "ts" | "mts" | "m2ts" | "divx"
+            | "f4v" | "ogv" | "ogm",
+        ) => FileType::Video,
+        // Audio files
+        Some(
+            "mp3" | "m4a" | "wav" | "flac" | "aac" | "ogg" | "oga" | "wma" | "opus" | "mka"
+            | "ape" | "ac3" | "dts" | "amr" | "au" | "ra" | "tta" | "tak",
+        ) => FileType::Audio,
+        // Image files
+        Some(
+            "jpg" | "jpeg" | "png" | "gif" | "bmp" | "tiff" | "tif" | "webp" | "svg" | "ico"
+            | "heic" | "heif" | "raw" | "cr2" | "nef" | "arw" | "dng" | "orf" | "rw2" | "pef"
+            | "srw" | "raf" | "3fr" | "erf" | "mef" | "mos" | "nrw" | "srf" | "x3f" | "psb"
+            | "psd" | "ai" | "indd" | "sketch" | "fig" | "xd" | "afdesign" | "afphoto" | "afpub",
+        ) => FileType::Image,
         // Disk images
-        Some("iso" | "img" | "dmg" | "vhd" | "vhdx" | "vmdk" | "vdi" | "wim" | "esd") => {
-            FileType::DiskImage
-        }
-        // Archives
-        Some("zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "cab" | "tgz" | "tbz2") => {
-            FileType::Archive
-        }
-        // Installers
-        Some("exe" | "msi" | "msix" | "appx" | "appxbundle") => FileType::Installer,
-        // Documents (large ones)
-        Some("pdf" | "psd" | "ai" | "indd") => FileType::Document,
-        // Databases
-        Some("db" | "sqlite" | "sqlite3" | "mdb" | "accdb" | "bak") => FileType::Database,
-        // Backup files
-        Some("backup" | "old" | "orig" | "bkp") => FileType::Backup,
+        Some(
+            "iso" | "img" | "dmg" | "vhd" | "vhdx" | "vmdk" | "vdi" | "wim" | "esd" | "bin"
+            | "cue" | "nrg" | "mdf" | "ccd" | "sub",
+        ) => FileType::DiskImage,
+        // Archives (excluding "dmg", "iso", "bin" which are matched as DiskImage)
+        Some(
+            "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "cab" | "tgz" | "tbz2"
+            | "lz" | "lzma" | "lzh" | "ace" | "arj" | "deb" | "rpm" | "pkg" | "sit"
+            | "sitx" | "z" | "cpio" | "shar" | "lbr" | "mar" | "s7z" | "alz" | "apk" | "arc"
+            | "b1" | "ba" | "bh" | "bz" | "bzip2" | "c00" | "c01" | "c10" | "car" | "cbr"
+            | "cbz" | "egg" | "gda" | "jar" | "lha" | "lib" | "lzo" | "lzx" | "pak" | "pea"
+            | "rz" | "sfx" | "sqx" | "tlz" | "txz" | "tz" | "tzo" | "tzst" | "udf" | "war"
+            | "whl" | "xar" | "zipx" | "zoo" | "zpaq" | "zz" | "001" | "002" | "003",
+        ) => FileType::Archive,
+        // Installers (excluding extensions already matched in Archives)
+        Some(
+            "exe" | "msi" | "msix" | "appx" | "appxbundle" | "ipa" | "app" | "run",
+        ) => FileType::Installer,
+        // Spreadsheets
+        Some(
+            "xlsx" | "xls" | "csv" | "ods" | "numbers",
+        ) => FileType::Spreadsheet,
+        // Presentations
+        Some(
+            "pptx" | "ppt" | "odp" | "key",
+        ) => FileType::Presentation,
+        // Text files
+        Some(
+            "txt" | "md" | "markdown" | "rtf",
+        ) => FileType::Text,
+        // Code and config files
+        // Note: "ts" excluded as it matches video file extension "ts" - use "tsx" or "typescript" instead
+        Some(
+            // Config/data formats
+            "har" | "json" | "xml" | "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "config"
+            | "env" | "properties" | "prop" | "settings" | "prefs" | "plist" | "xcconfig"
+            // Task/build files
+            | "task" | "tsk" | "mk" | "make" | "cmake" | "gradle" | "sbt" | "mod" | "sum"
+            | "podspec" | "podfile" | "cartfile" | "gemfile" | "rakefile" | "pom" | "build"
+            // Common languages
+            | "js" | "jsx" | "tsx" | "py" | "java" | "cpp" | "c" | "h" | "hpp" | "hxx" | "h++"
+            | "cc" | "cxx" | "c++" | "cs" | "php" | "rb" | "go" | "rs" | "swift" | "kt" | "kts"
+            | "scala" | "sc" | "clj" | "cljs" | "cljc" | "edn" | "hs" | "lhs" | "ml" | "mli"
+            | "mll" | "mly" | "fs" | "fsi" | "fsx" | "vb" | "vbs" | "pl" | "pm" | "t" | "sh"
+            | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "bat" | "cmd" | "awk" | "sed"
+            // Web technologies
+            | "css" | "scss" | "sass" | "less" | "styl" | "html" | "htm" | "xhtml" | "vue"
+            | "svelte" | "elm" | "dart" | "astro" | "hbs" | "handlebars" | "mustache"
+            // Other languages
+            | "lua" | "r" | "R" | "m" | "mm" | "zig" | "nim" | "cr" | "d" | "adb" | "ads"
+            | "f" | "f90" | "f95" | "f03" | "f08" | "cbl" | "cob" | "cpy" | "pas" | "pp" | "p"
+            | "dpr" | "dfm" | "erl" | "hrl" | "ex" | "exs" | "pro" | "lisp" | "lsp" | "cl"
+            | "el" | "scm" | "ss" | "rkt" | "st" | "fth" | "4th" | "tcl" | "tk"
+            // Database query languages
+            | "plsql" | "mysql" | "pgsql" | "mssql" | "oracle" | "hql" | "cql" | "cypher"
+            | "gql" | "graphql" | "gremlin" | "sparql" | "xquery" | "xpath" | "xq" | "xql"
+            | "xqm" | "xqy"
+            // Infrastructure as code (excluding "pp" which matches Pascal)
+            | "tf" | "tfvars" | "tfstate" | "sls" | "hcl"
+            // API/Schema definitions
+            | "proto" | "thrift" | "avsc" | "avdl" | "fbs" | "capnp" | "idl"
+            // Notebooks
+            | "ipynb" | "rmd" | "qmd"
+            // Templates
+            | "erb" | "j2" | "jinja" | "jinja2" | "twig" | "njk" | "ejs" | "pug" | "jade"
+            // IDE/Editor files
+            | "iml" | "ipr" | "iws" | "code-workspace" | "sublime-project" | "sublime-workspace"
+            | "atom" | "vimrc" | "gvimrc" | "vim" | "nvim"
+            // Version control
+            | "gitconfig" | "gitmodules" | "gitkeep"
+            // Shell config
+            | "zshrc" | "bashrc" | "profile" | "bash_profile" | "bash_login" | "bash_logout"
+            | "zprofile" | "zlogin" | "zlogout" | "zshenv" | "fishrc"
+            // Node/JS config
+            | "nvmrc" | "node-version" | "npmrc" | "yarnrc" | "eslintrc" | "eslintignore"
+            | "prettierrc" | "prettierignore" | "babelrc" | "babelignore" | "jestrc"
+            | "jestconfig" | "tsconfig" | "jsconfig" | "webpack" | "rollup" | "vite"
+            // Project files
+            | "sln" | "csproj" | "vbproj" | "vcxproj" | "vcproj" | "vcxproj.filters"
+            | "xcodeproj" | "xcworkspace" | "pbxproj" | "storyboard" | "xib" | "nib"
+            // Other config (excluding container files which are matched separately)
+            | "editorconfig" | "swagger" | "openapi"
+        ) => FileType::Code,
+        // Documents (PDFs, ebooks, and other document formats)
+        Some(
+            "pdf" | "docx" | "doc" | "odt" | "pages" | "tex" | "latex" | "epub" | "mobi"
+            | "azw" | "azw3" | "fb2",
+        ) => FileType::Document,
+        // Databases (excluding "mdf" which matches disk image, and "bak" which matches backup)
+        Some(
+            "db" | "sqlite" | "sqlite3" | "mdb" | "accdb" | "fdb" | "gdb" | "ndf"
+            | "ldf" | "dbf" | "db3" | "s3db" | "sl3" | "sl2" | "sl1" | "sqlitedb" | "sqlite2"
+            | "sqlite-wal" | "sqlite-shm" | "db-shm" | "db-wal" | "sdb" | "sql" | "sqlite-db"
+            | "db2" | "db4" | "db5" | "db6" | "db7" | "db8" | "db9" | "db10" | "db11" | "db12"
+            | "db13" | "db14" | "db15" | "db16" | "db17" | "db18" | "db19" | "db20",
+        ) => FileType::Database,
+        // Backup files (excluding "bak" which matches database)
+        Some(
+            "backup" | "old" | "orig" | "bkp" | "tmp" | "temp" | "~" | "swp" | "swo"
+            | "save" | "sav" | "back" | "bac" | "bk" | "bkf" | "bk1" | "bk2" | "bk3" | "bk4"
+            | "bk5" | "bk6" | "bk7" | "bk8" | "bk9" | "old1" | "old2" | "old3" | "old4"
+            | "old5" | "old6" | "old7" | "old8" | "old9" | "orig1" | "orig2" | "orig3"
+            | "orig4" | "orig5" | "orig6" | "orig7" | "orig8" | "orig9",
+        ) => FileType::Backup,
+        // Font files
+        Some(
+            "ttf" | "otf" | "woff" | "woff2" | "eot" | "ttc" | "fon" | "pfm" | "afm" | "pfb",
+        ) => FileType::Font,
+        // Log files
+        Some(
+            "log" | "out" | "err" | "trace" | "debug" | "audit",
+        ) => FileType::Log,
+        // Certificate and security files (excluding "key" which matches Presentation)
+        Some(
+            "pem" | "crt" | "cer" | "p12" | "pfx" | "jks" | "keystore" | "truststore"
+            | "csr" | "der" | "p7b" | "p7c" | "p7s" | "spc" | "p8" | "pub",
+        ) => FileType::Certificate,
+        // Build artifacts and compiled files (must come before System to catch .o, .obj, .class, etc.)
+        Some(
+            "o" | "obj" | "class" | "pyc" | "pyo" | "pycache" | "elc" | "beam" | "hi" | "cmi"
+            | "cmo" | "cmx" | "cma" | "cmxa" | "cmxs" | "pdb" | "ilk" | "exp" | "map" | "lst"
+            | "gcda" | "gcno" | "gcov" | "profdata",
+        ) => FileType::Build,
+        // System files (excluding .exe, .com, .bin, .lib, .a, .so, .dylib, .dll which are matched elsewhere)
+        Some(
+            "dll" | "so" | "dylib" | "sys" | "drv" | "vxd" | "ocx" | "framework" | "kext",
+        ) => FileType::System,
+        // Subtitle files (excluding "sub" which matches DiskImage)
+        Some(
+            "srt" | "vtt" | "ass" | "ssa" | "idx" | "smi" | "scc" | "ttml" | "dfxp"
+            | "sbv" | "mpl2" | "mks" | "usf" | "jss",
+        ) => FileType::Subtitle,
+        // CAD files (specific CAD formats)
+        Some(
+            "dwg" | "dxf" | "step" | "stp" | "iges" | "igs" | "sat" | "3dm" | "c4d" | "ma" | "mb",
+        ) => FileType::CAD,
+        // 3D Model files (must come after Build to avoid .obj conflict)
+        Some(
+            "blend" | "3ds" | "max" | "fbx" | "dae" | "x3d" | "wrl" | "x3dv" | "stl" | "ply"
+            | "off" | "3mf" | "amf" | "gltf" | "glb" | "usd" | "usda" | "usdc" | "usdz" | "abc",
+        ) => FileType::Model3D,
+        // GIS and mapping files (excluding .tif/.tiff/.img which are images, .map which is build)
+        Some(
+            "shp" | "shx" | "prj" | "kml" | "kmz" | "gpx" | "geojson" | "topojson"
+            | "mif" | "mid" | "tab" | "gml" | "osm" | "pbf" | "mbtiles" | "gpkg"
+            | "geotiff" | "hgt" | "dem" | "dt0" | "dt1" | "dt2" | "asc" | "adf" | "bil",
+        ) => FileType::GIS,
+        // Virtual machine files (excluding .vhd/.vhdx/.vdi/.vmdk which are matched as DiskImage)
+        Some(
+            "qcow" | "qcow2" | "vfd" | "vmem" | "vmsn" | "vmss" | "vmx" | "vmxf" | "nvram"
+            | "vbox" | "ova" | "ovf" | "hdd" | "hds" | "hsv" | "vsv" | "avhd" | "avhdx" | "vbox-prev",
+        ) => FileType::VirtualMachine,
+        // Container and virtualization files (excluding .yaml/.yml which are Code)
+        Some(
+            "dockerfile" | "containerfile" | "dockerignore" | "compose" | "docker-compose"
+            | "podman" | "kubernetes" | "k8s" | "helm" | "chart",
+        ) => FileType::Container,
+        // Web assets (excluding fonts/images/audio/video already matched)
+        Some(
+            "webmanifest" | "manifest" | "serviceworker" | "sw" | "wasm" | "br" | "zstd" | "lz4",
+        ) => FileType::WebAsset,
+        // Game files (excluding .pak/.map/.bin/.cfg/.ini/.log/.sav/.dat/.manifest already matched)
+        Some(
+            "wad" | "mdl" | "mdx" | "smd" | "vtx" | "vvd" | "phy" | "ani" | "vmt" | "vtf"
+            | "spr" | "qc" | "dmx" | "vcd" | "pcf" | "vpk" | "gcf" | "ncf" | "vdf" | "acf"
+            | "appinfo" | "appmanifest" | "gma" | "nav" | "ain" | "res" | "bsp",
+        ) => FileType::Game,
+        // Files without extension or unknown extensions
+        None => FileType::Other,
         _ => FileType::Other,
     }
 }
@@ -670,17 +991,141 @@ mod tests {
 
     #[test]
     fn test_file_type_detection() {
+        // Video files
         assert_eq!(detect_file_type(Path::new("movie.mp4")), FileType::Video);
+        assert_eq!(detect_file_type(Path::new("video.mkv")), FileType::Video);
+
+        // Audio files
+        assert_eq!(detect_file_type(Path::new("song.m4a")), FileType::Audio);
+        assert_eq!(detect_file_type(Path::new("music.mp3")), FileType::Audio);
+        assert_eq!(detect_file_type(Path::new("sound.wav")), FileType::Audio);
+
+        // Image files
+        assert_eq!(detect_file_type(Path::new("photo.heic")), FileType::Image);
+        assert_eq!(detect_file_type(Path::new("image.jpg")), FileType::Image);
+        assert_eq!(detect_file_type(Path::new("photo.jpeg")), FileType::Image);
+        assert_eq!(detect_file_type(Path::new("photo.raw")), FileType::Image);
+        assert_eq!(detect_file_type(Path::new("picture.png")), FileType::Image);
+
+        // Disk images
         assert_eq!(
             detect_file_type(Path::new("windows.iso")),
             FileType::DiskImage
         );
+
+        // Archives
         assert_eq!(detect_file_type(Path::new("backup.zip")), FileType::Archive);
+
+        // Installers
         assert_eq!(
             detect_file_type(Path::new("setup.exe")),
             FileType::Installer
         );
-        assert_eq!(detect_file_type(Path::new("random.txt")), FileType::Other);
+
+        // Documents
+        assert_eq!(
+            detect_file_type(Path::new("document.docx")),
+            FileType::Document
+        );
+        assert_eq!(detect_file_type(Path::new("file.pdf")), FileType::Document);
+
+        // Spreadsheets
+        assert_eq!(
+            detect_file_type(Path::new("data.csv")),
+            FileType::Spreadsheet
+        );
+        assert_eq!(
+            detect_file_type(Path::new("spreadsheet.xlsx")),
+            FileType::Spreadsheet
+        );
+
+        // Presentations
+        assert_eq!(
+            detect_file_type(Path::new("presentation.pptx")),
+            FileType::Presentation
+        );
+
+        // Text files
+        assert_eq!(detect_file_type(Path::new("readme.txt")), FileType::Text);
+        assert_eq!(detect_file_type(Path::new("notes.md")), FileType::Text);
+
+        // Code files
+        assert_eq!(detect_file_type(Path::new("code.js")), FileType::Code);
+        assert_eq!(detect_file_type(Path::new("config.json")), FileType::Code);
+        assert_eq!(detect_file_type(Path::new("archive.har")), FileType::Code);
+        assert_eq!(detect_file_type(Path::new("task.task")), FileType::Code);
+        assert_eq!(detect_file_type(Path::new("script.py")), FileType::Code);
+
+        // Databases
+        assert_eq!(
+            detect_file_type(Path::new("database.db")),
+            FileType::Database
+        );
+
+        // Font files
+        assert_eq!(detect_file_type(Path::new("font.ttf")), FileType::Font);
+        assert_eq!(detect_file_type(Path::new("font.woff2")), FileType::Font);
+
+        // Log files
+        assert_eq!(detect_file_type(Path::new("app.log")), FileType::Log);
+
+        // Certificate files
+        assert_eq!(
+            detect_file_type(Path::new("cert.pem")),
+            FileType::Certificate
+        );
+        assert_eq!(
+            detect_file_type(Path::new("cert.crt")),
+            FileType::Certificate
+        );
+
+        // Build files
+        assert_eq!(detect_file_type(Path::new("file.o")), FileType::Build);
+        assert_eq!(detect_file_type(Path::new("file.class")), FileType::Build);
+
+        // Subtitle files
+        assert_eq!(
+            detect_file_type(Path::new("subtitle.srt")),
+            FileType::Subtitle
+        );
+
+        // CAD files
+        assert_eq!(detect_file_type(Path::new("drawing.dwg")), FileType::CAD);
+
+        // 3D Model files
+        assert_eq!(detect_file_type(Path::new("model.fbx")), FileType::Model3D);
+
+        // GIS files
+        assert_eq!(detect_file_type(Path::new("map.shp")), FileType::GIS);
+
+        // Container files
+        assert_eq!(
+            detect_file_type(Path::new("Dockerfile")),
+            FileType::Container
+        );
+
+        // Edge cases: Multiple extensions
+        assert_eq!(
+            detect_file_type(Path::new("archive.tar.gz")),
+            FileType::Archive
+        );
+        assert_eq!(detect_file_type(Path::new("script.min.js")), FileType::Code);
+        assert_eq!(
+            detect_file_type(Path::new("backup.backup.bak")),
+            FileType::Backup
+        );
+
+        // Edge cases: Files without extension
+        assert_eq!(detect_file_type(Path::new("README")), FileType::Other);
+        assert_eq!(detect_file_type(Path::new("Makefile")), FileType::Code);
+        assert_eq!(
+            detect_file_type(Path::new("Dockerfile")),
+            FileType::Container
+        );
+
+        // Edge cases: Unknown extensions
+        assert_eq!(detect_file_type(Path::new("unknown.xyz")), FileType::Other);
+        assert_eq!(detect_file_type(Path::new("file.unknown")), FileType::Other);
     }
 
     #[test]
@@ -805,14 +1250,40 @@ mod tests {
     #[test]
     fn test_file_type_emoji() {
         assert_eq!(FileType::Video.emoji(), "🎬");
+        assert_eq!(FileType::Audio.emoji(), "🎵");
+        assert_eq!(FileType::Image.emoji(), "🖼️");
         assert_eq!(FileType::Archive.emoji(), "📦");
+        assert_eq!(FileType::Document.emoji(), "📄");
+        assert_eq!(FileType::Spreadsheet.emoji(), "📊");
+        assert_eq!(FileType::Presentation.emoji(), "📽️");
+        assert_eq!(FileType::Code.emoji(), "💻");
+        assert_eq!(FileType::Text.emoji(), "📝");
+        assert_eq!(FileType::Font.emoji(), "🔤");
+        assert_eq!(FileType::Log.emoji(), "📋");
+        assert_eq!(FileType::Certificate.emoji(), "🔒");
+        assert_eq!(FileType::System.emoji(), "⚙️");
+        assert_eq!(FileType::Build.emoji(), "🔨");
+        assert_eq!(FileType::Subtitle.emoji(), "📺");
+        assert_eq!(FileType::CAD.emoji(), "📐");
+        assert_eq!(FileType::Model3D.emoji(), "🎨");
+        assert_eq!(FileType::GIS.emoji(), "🗺️");
+        assert_eq!(FileType::VirtualMachine.emoji(), "🖥️");
+        assert_eq!(FileType::Container.emoji(), "📦");
+        assert_eq!(FileType::WebAsset.emoji(), "🌐");
+        assert_eq!(FileType::Game.emoji(), "🎮");
         assert_eq!(FileType::Other.emoji(), "📁");
     }
 
     #[test]
     fn test_file_type_as_str() {
         assert_eq!(FileType::Video.as_str(), "Video");
+        assert_eq!(FileType::Audio.as_str(), "Audio");
+        assert_eq!(FileType::Image.as_str(), "Image");
         assert_eq!(FileType::DiskImage.as_str(), "Disk Image");
+        assert_eq!(FileType::Spreadsheet.as_str(), "Spreadsheet");
+        assert_eq!(FileType::Presentation.as_str(), "Presentation");
+        assert_eq!(FileType::Code.as_str(), "Code");
+        assert_eq!(FileType::Text.as_str(), "Text");
         assert_eq!(FileType::Other.as_str(), "Other");
     }
 

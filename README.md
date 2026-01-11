@@ -1,6 +1,15 @@
-# Wole
+<div align="center">
+  <h1>Wole</h1>
+  <p><em>Deep clean and optimize your Windows PC.</em></p>
+</div>
 
-*Deep clean and optimize your Windows PC.*
+<p align="center">
+  <a href="https://github.com/jplx05/wole/stargazers"><img src="https://img.shields.io/github/stars/jplx05/wole?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/jplx05/wole/releases"><img src="https://img.shields.io/github/v/tag/jplx05/wole?label=version&style=flat-square" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
+  <a href="https://github.com/jplx05/wole/commits"><img src="https://img.shields.io/github/commit-activity/m/jplx05/wole?style=flat-square" alt="Commits"></a>
+  <a href="https://x.com/jplx05"><img src="https://img.shields.io/badge/follow-jplx05-red?style=flat-square&logo=X" alt="X (Twitter)"></a>
+</p>
 
 ## Features
 
@@ -9,19 +18,23 @@
 - **Project-aware**: Only cleans build artifacts from inactive projects (14+ days), respecting **Git status**
 - **Disk insights**: Visualizes usage, finds large files, and explores your **disk space interactively**
 - **Safe by default**: Dry-run mode, Recycle Bin deletion, and **full restore capability**
+- **Incremental scan cache**: SQLite-based cache system for **lightning-fast incremental scans** - only rescans changed files
+- **File type detection**: Comprehensive file type detection with **emoji indicators** (🎬 videos, 🎵 audio, 💻 code, etc.)
+- **Smart filtering**: Search and filter by file type or extension in interactive TUI mode
+- **Disk insights cache**: Cached folder tree structures for instant disk usage analysis
 
 ## Quick Start
 
 **Install via PowerShell — recommended:**
 
 ```powershell
-irm https://raw.githubusercontent.com/jpaulpoliquit/wole/master/install.ps1 | iex
+irm https://raw.githubusercontent.com/jplx05/wole/master/install.ps1 | iex
 ```
 
 **Or via Bash:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jpaulpoliquit/wole/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jplx05/wole/master/install.sh | bash
 ```
 
 **Run:**
@@ -62,6 +75,8 @@ wole update                   # Check for and install updates
 - **Configuration**: Run `wole config --edit` to customize thresholds, exclusions, and scan paths.
 - **System Monitoring**: Use `wole status` to monitor system health in real-time. The dashboard auto-refreshes every second.
 - **System Optimization**: Run `wole optimize --all` to perform various Windows optimizations. Some operations require administrator privileges.
+- **Scan Cache**: Incremental scans are automatically cached for faster subsequent runs. Cache is stored in `%LOCALAPPDATA%\wole\cache\scan_cache.db`.
+- **File Type Filtering**: In TUI results screen, press `/` to search and filter by file type (e.g., "video", "code", ".mp4") or extension.
 
 ## Features in Detail
 
@@ -80,6 +95,8 @@ Cleaning...
 ✓ Build: 12 files (1.2 GB)
 ✓ Browser: 67 files (234 MB)
 ✓ System: 34 files (567 MB)
+✓ Windows Update: 8 files (1.5 GB)
+✓ Event Logs: 12 files (234 MB)
 
 ====================================================================
 Space freed: 8.1 GB | Free space now: 53.3 GB
@@ -184,6 +201,8 @@ Trash                23    89 MB      [OK] Safe to clean
 Build                12    1.2 GB    [OK] Inactive projects
 Browser              67    234 MB     [OK] Safe to clean
 System               34    567 MB     [OK] Safe to clean
+Windows Update        8    1.5 GB   [!] Requires admin
+Event Logs           12    234 MB   [!] Requires admin
 Large                 8    2.1 GB   [!] Review suggested
 Old                  45    890 MB   [!] Review suggested
 ────────────────────────────────────────────────────────────
@@ -191,6 +210,49 @@ Total              362    8.1 GB         Reclaimable
 
 Run wole clean --all to remove these files.
 ```
+
+### Incremental Scan Cache
+
+Wole uses an intelligent SQLite-based cache system to dramatically speed up subsequent scans. After the first scan, only files that have changed or been added are rescanned, making follow-up scans **2-10x faster**.
+
+```bash
+$ wole scan --all
+# First scan: Scans all files (may take a few minutes)
+
+$ wole scan --all
+# Second scan: Only rescans changed/new files (much faster!)
+```
+
+**How it works:**
+- File signatures (size, modified time, optional content hash) are cached in `%LOCALAPPDATA%\wole\cache\scan_cache.db`
+- Cache is automatically invalidated when files change
+- Per-category caching allows partial cache hits
+- Cache can be disabled via configuration if needed
+
+**Benefits:**
+- ⚡ **Faster scans**: Subsequent scans only check changed files
+- 💾 **Lower CPU usage**: Less disk I/O on repeat scans
+- 🔄 **Smart updates**: Cache automatically stays in sync with file changes
+
+### File Type Detection & Filtering
+
+Wole includes comprehensive file type detection with visual emoji indicators, making it easy to identify file types at a glance.
+
+**Supported file types:**
+- 🎬 Videos (mp4, avi, mkv, mov, etc.)
+- 🎵 Audio (mp3, wav, flac, etc.)
+- 🖼️ Images (jpg, png, gif, webp, etc.)
+- 💻 Code (js, py, rs, cpp, etc.)
+- 📄 Documents (pdf, docx, etc.)
+- 📦 Archives (zip, tar, rar, etc.)
+- 🗃️ Databases (sqlite, db, etc.)
+- And 20+ more categories!
+
+**In TUI Results Screen:**
+- Press `/` to open search/filter dialog
+- Filter by file type name (e.g., "video", "code", "image")
+- Filter by extension (e.g., ".mp4", ".js", ".pdf")
+- File types are automatically detected and displayed with emoji indicators
 
 ### File Restore
 
@@ -340,9 +402,11 @@ Use `wole status --json` for JSON output suitable for scripting.
 | `--empty`        | Empty folders                                                                       |
 | `--duplicates`   | Duplicate files                                                                     |
 | `--applications` | Installed applications                                                              |
+| `--windows-update` | Windows Update download files (requires admin)                                     |
+| `--event-logs`   | Windows Event Log files (requires admin)                                           |
 
 
-**Note:** Only `--build` is project-aware. Other categories clean files system-wide.
+**Note:** Only `--build` is project-aware. Other categories clean files system-wide. `--windows-update` and `--event-logs` require administrator privileges.
 
 ## Options
 
@@ -399,6 +463,12 @@ min_size_mb = 100
 
 [exclusions]
 patterns = ["**/important-project/**"]
+
+[cache]
+enabled = true                    # Enable incremental scan cache (default: true)
+full_disk_baseline = false       # Full disk traversal on first scan (default: false)
+max_age_days = 30                # Cache entry expiration (default: 30)
+content_hash_threshold_bytes = 10485760  # Hash files >10MB for better accuracy (default: 10MB)
 ```
 
 ```bash
@@ -430,7 +500,7 @@ cargo build --release
 
 - If Wole saved you disk space, consider starring the repo or sharing it with friends.
 - Have ideas or fixes? Check our [Contributing Guide](CONTRIBUTING.md), then open an issue or PR.
-- Follow the author on [X (Twitter)](https://x.com/jpaulpoliquit) for updates!
+- Follow the author on [X (Twitter)](https://x.com/jplx05) for updates!
 
 ## License
 

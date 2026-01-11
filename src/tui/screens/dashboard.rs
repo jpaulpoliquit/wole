@@ -58,9 +58,9 @@ fn render_actions(f: &mut Frame, area: Rect, app_state: &AppState) {
         ("Clean", "Delete selected files"),
         ("Analyze", "Explore disk usage (folder sizes)"),
         ("Restore", "Restore files from deletion or Recycle Bin"),
-        ("Config", "View or modify settings"),
         ("Optimize", "Optimize Windows system performance"),
         ("Status", "Real-time system health dashboard"),
+        ("Config", "View or modify settings"),
     ];
 
     let items: Vec<ListItem> = actions
@@ -89,11 +89,7 @@ fn render_actions(f: &mut Frame, area: Rect, app_state: &AppState) {
 
     let border_style = Styles::border();
 
-    let title = if app_state.focus_actions {
-        "ACTIONS"
-    } else {
-        "Actions"
-    };
+    let title = "Actions";
 
     // Adaptive padding based on screen size
     let padding = if area.width < 30 {
@@ -116,23 +112,29 @@ fn render_actions(f: &mut Frame, area: Rect, app_state: &AppState) {
 }
 
 fn render_content(f: &mut Frame, area: Rect, app_state: &AppState, _is_small: bool) {
-    // Single column layout - flow vertically, no columns
-    // Use Min to ensure all actions are visible - each action is 2 lines, 4 actions = 8 lines + title + borders
+    // Single column layout - flow vertically, no columns.
+    //
+    // IMPORTANT: reserve real space for the Categories list. Previously, the Actions section
+    // could consume almost the entire viewport on smaller terminals, making Categories appear
+    // "empty"/broken.
+    let min_categories_height: u16 = if area.height < 24 { 10 } else { 14 };
+    // Calculate exact height needed for actions: 1 (title) + 14 (7 actions × 2 lines + borders/padding)
+    let actions_height: u16 = 15; // Fixed compact height to maximize space for categories
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(12), // Actions section - enough space for all 4 actions with spacing
-            Constraint::Min(0),  // Categories (flexible, uses remaining space)
+            Constraint::Length(actions_height), // Actions section (fixed height)
+            Constraint::Min(min_categories_height), // Categories (always visible)
         ])
         .split(area);
 
-    // Actions section with proper spacing
+    // Actions section with minimal spacing
     let action_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // Title
-            Constraint::Length(1), // Spacing
-            Constraint::Min(14),   // Actions list - enough for all 6 actions (each is 2 lines)
+            Constraint::Length(1),  // Title
+            Constraint::Length(14), // Actions list - exactly 14 lines (7 actions × 2 lines + borders/padding)
         ])
         .split(chunks[0]);
 
@@ -150,7 +152,7 @@ fn render_content(f: &mut Frame, area: Rect, app_state: &AppState, _is_small: bo
         .alignment(ratatui::layout::Alignment::Left);
     f.render_widget(title, action_chunks[0]);
 
-    render_actions(f, action_chunks[2], app_state);
+    render_actions(f, action_chunks[1], app_state);
 
     // Categories section with proper spacing
     let category_chunks = Layout::default()
@@ -171,57 +173,93 @@ fn render_content(f: &mut Frame, area: Rect, app_state: &AppState, _is_small: bo
     .alignment(ratatui::layout::Alignment::Left);
     f.render_widget(title, category_chunks[0]);
 
-    // Categories list
-    let items: Vec<ListItem> = app_state
-        .categories
-        .iter()
-        .enumerate()
-        .map(|(i, cat)| {
-            let is_selected = i == app_state.cursor && !app_state.focus_actions;
-            let name_style = if is_selected {
-                Styles::selected()
-            } else if cat.enabled {
-                Styles::emphasis()
-            } else {
-                Style::default()
-            };
+    // Helper function to determine which group a category belongs to
+    fn get_category_group(cat_name: &str) -> Option<&'static str> {
+        match cat_name {
+            "Trash" | "Temp Files" | "Browser Cache" | "Application Cache" | "System Cache"
+            | "Empty Folders" => Some("A. Quick Clean (recommended)"),
+            "Build Artifacts" | "Package Cache" => Some("B. Developer Cleanup"),
+            "Installed Applications"
+            | "Old Downloads"
+            | "Large Files"
+            | "Old Files"
+            | "Duplicates" => Some("C. Space Hunters (review required)"),
+            "Windows Update" | "Event Logs" => Some("D. Advanced (admin required)"),
+            _ => None,
+        }
+    }
 
-            // Split checkbox into brackets and inner content to style brackets separately when focused
-            let bracket_style = if is_selected {
-                Styles::selected()
-            } else {
-                Style::default()
-            };
+    // Build items with group headers and track mapping between category index and display index
+    let mut items: Vec<ListItem> = Vec::new();
+    let mut current_group: Option<&str> = None;
+    let mut category_to_display: Vec<usize> = Vec::new(); // Maps category index to display index
 
-            let inner_content = if cat.enabled {
-                ("X", Styles::checked())
-            } else {
-                (" ", Styles::secondary())
-            };
+    for (i, cat) in app_state.categories.iter().enumerate() {
+        // Check if we need to add a group header
+        let group = get_category_group(&cat.name);
+        if group != current_group {
+            if let Some(group_name) = group {
+                // Add group header
+                items.push(ListItem::new(Line::from(vec![Span::styled(
+                    format!("  {}", group_name),
+                    Styles::header(),
+                )])));
+            }
+            current_group = group;
+        }
 
-            let prefix = if is_selected { "> " } else { "  " };
-            // Truncate description on small screens
-            let max_desc_len = (area.width.saturating_sub(20) as usize).max(15);
-            let desc_text = if cat.description.len() > max_desc_len {
-                format!("{}...", &cat.description[..max_desc_len])
-            } else {
-                cat.description.clone()
-            };
+        // Track mapping: category index i maps to display index items.len()
+        category_to_display.push(items.len());
 
-            let line = Line::from(vec![
-                Span::styled(prefix, name_style),
-                Span::styled("[", bracket_style),
-                Span::styled(inner_content.0, inner_content.1),
-                Span::styled("]", bracket_style),
-                Span::raw(" "),
-                Span::styled(&cat.name, name_style),
-                Span::raw("  "),
-                Span::styled(desc_text, Styles::secondary()),
-            ]);
+        // Add category item
+        // Use actual category index (i) for cursor matching
+        let is_selected = i == app_state.cursor && !app_state.focus_actions;
+        let name_style = if is_selected {
+            Styles::selected()
+        } else if cat.enabled {
+            Styles::emphasis()
+        } else {
+            Style::default()
+        };
 
-            ListItem::new(line)
-        })
-        .collect();
+        // Split checkbox into brackets and inner content to style brackets separately when focused
+        let bracket_style = if is_selected {
+            Styles::selected()
+        } else {
+            Style::default()
+        };
+
+        let inner_content = if cat.enabled {
+            ("X", Styles::checked())
+        } else {
+            (" ", Styles::secondary())
+        };
+
+        let prefix = if is_selected { "> " } else { "  " };
+        // Truncate description on small screens
+        let max_desc_len = (area.width.saturating_sub(20) as usize).max(15);
+        let desc_text = if cat.description.len() > max_desc_len {
+            format!("{}...", &cat.description[..max_desc_len])
+        } else {
+            cat.description.clone()
+        };
+
+        // Make description less prominent than the category name
+        let desc_style = Styles::secondary();
+
+        let line = Line::from(vec![
+            Span::styled(prefix, name_style),
+            Span::styled("[", bracket_style),
+            Span::styled(inner_content.0, inner_content.1),
+            Span::styled("]", bracket_style),
+            Span::raw(" "),
+            Span::styled(&cat.name, name_style),
+            Span::raw("  "),
+            Span::styled(desc_text, desc_style),
+        ]);
+
+        items.push(ListItem::new(line));
+    }
 
     let border_style = Styles::border();
 
@@ -243,6 +281,10 @@ fn render_content(f: &mut Frame, area: Rect, app_state: &AppState, _is_small: bo
     );
 
     let mut list_state = ratatui::widgets::ListState::default();
-    list_state.select(Some(app_state.cursor));
+    // Map category cursor to display index (accounting for group headers)
+    if !app_state.focus_actions && app_state.cursor < category_to_display.len() {
+        let display_index = category_to_display[app_state.cursor];
+        list_state.select(Some(display_index));
+    }
     f.render_stateful_widget(list, category_chunks[2], &mut list_state);
 }

@@ -104,13 +104,13 @@ Create `.github/CODEOWNERS` file to automatically request reviews from specific 
 
 ```
 # Global owners
-* @jpaulpoliquit
+* @jplx05
 
 # Core functionality
-/src/ @jpaulpoliquit
+/src/ @jplx05
 
 # CI/CD
-/.github/workflows/ @jpaulpoliquit
+/.github/workflows/ @jplx05
 ```
 
 ## Security Settings

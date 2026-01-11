@@ -370,10 +370,12 @@ fn handle_dashboard_event(
                         progress: crate::tui::state::ScanProgress {
                             current_category: String::new(),
                             current_path: None,
+                            notice: None,
                             category_progress,
                             total_scanned: 0,
                             total_found: 0,
                             total_size: 0,
+                            start_time: std::time::Instant::now(),
                         },
                     };
                 }
@@ -395,10 +397,12 @@ fn handle_dashboard_event(
                         progress: crate::tui::state::ScanProgress {
                             current_category: String::new(),
                             current_path: None,
+                            notice: None,
                             category_progress,
                             total_scanned: 0,
                             total_found: 0,
                             total_size: 0,
+                            start_time: std::time::Instant::now(),
                         },
                     };
                 }
@@ -418,6 +422,7 @@ fn handle_dashboard_event(
                         progress: crate::tui::state::ScanProgress {
                             current_category: "Disk Insights".to_string(),
                             current_path: Some(scan_path),
+                            notice: None,
                             category_progress: vec![crate::tui::state::CategoryProgress {
                                 name: "Analyzing disk usage".to_string(),
                                 completed: false,
@@ -427,6 +432,7 @@ fn handle_dashboard_event(
                             total_scanned: 0,
                             total_found: 0,
                             total_size: 0,
+                            start_time: std::time::Instant::now(),
                         },
                     };
                 }
@@ -435,14 +441,6 @@ fn handle_dashboard_event(
                     app_state.screen = crate::tui::state::Screen::RestoreSelection { cursor: 0 };
                 }
                 4 => {
-                    // Config action - show config screen
-                    // Ensure config exists on disk so we can open it
-                    app_state.config = crate::config::Config::load_or_create();
-                    app_state.apply_config_to_state();
-                    app_state.reset_config_editor();
-                    app_state.screen = crate::tui::state::Screen::Config;
-                }
-                5 => {
                     // Optimize action - show optimize screen
                     app_state.screen = crate::tui::state::Screen::Optimize {
                         cursor: 0,
@@ -452,18 +450,20 @@ fn handle_dashboard_event(
                         message: None,
                     };
                 }
-                6 => {
+                5 => {
                     // Status action - show status screen
                     use crate::status::gather_status;
                     use sysinfo::System;
 
+                    // Don't call refresh_all() - gather_status will refresh what it needs
+                    // This avoids blocking on expensive full system refresh
                     let mut system = System::new();
-                    system.refresh_all();
                     match gather_status(&mut system) {
                         Ok(status) => {
                             app_state.screen = crate::tui::state::Screen::Status {
                                 status: Box::new(status),
                                 last_refresh: std::time::Instant::now(),
+                                status_receiver: None,
                             };
                         }
                         Err(e) => {
@@ -471,6 +471,14 @@ fn handle_dashboard_event(
                             // Stay on dashboard
                         }
                     }
+                }
+                6 => {
+                    // Config action - show config screen
+                    // Ensure config exists on disk so we can open it
+                    app_state.config = crate::config::Config::load_or_create();
+                    app_state.apply_config_to_state();
+                    app_state.reset_config_editor();
+                    app_state.screen = crate::tui::state::Screen::Config;
                 }
                 _ => {}
             }
@@ -497,7 +505,9 @@ fn handle_config_event(
     // 6 show_storage_info (bool)
     // 7 scan_depth_user (u8)
     // 8 scan_depth_entire_disk (u8)
-    let fields_len = 9usize;
+    // 9 full_disk_baseline (bool)
+    // 10 clear_cache (action)
+    let fields_len = 11usize;
 
     // Editing mode has its own key handling.
     if let ConfigEditorMode::Editing { ref mut buffer } = app_state.config_editor.mode {
@@ -663,6 +673,16 @@ fn handle_config_event(
                     }
                     app_state.apply_config_to_state();
                 }
+                9 => {
+                    app_state.config.cache.full_disk_baseline =
+                        !app_state.config.cache.full_disk_baseline;
+                    match app_state.config.save() {
+                        Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
+                    }
+                }
                 _ => {}
             }
             EventResult::Continue
@@ -690,6 +710,17 @@ fn handle_config_event(
                         }
                     }
                     app_state.apply_config_to_state();
+                }
+                9 => {
+                    // Toggle bool
+                    app_state.config.cache.full_disk_baseline =
+                        !app_state.config.cache.full_disk_baseline;
+                    match app_state.config.save() {
+                        Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
+                    }
                 }
                 0 => {
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
@@ -744,6 +775,25 @@ fn handle_config_event(
                     };
                     app_state.config_editor.message =
                         Some("Edit value (0-255), then Enter to save (Esc cancels).".to_string());
+                }
+                10 => {
+                    // Clear scan cache
+                    match crate::scan_cache::ScanCache::open() {
+                        Ok(mut cache) => match cache.clear_all() {
+                            Ok(()) => {
+                                app_state.config_editor.message =
+                                    Some("Scan cache cleared successfully.".to_string());
+                            }
+                            Err(e) => {
+                                app_state.config_editor.message =
+                                    Some(format!("Failed to clear cache: {}", e));
+                            }
+                        },
+                        Err(e) => {
+                            app_state.config_editor.message =
+                                Some(format!("Failed to open cache: {}", e));
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -865,6 +915,7 @@ fn handle_results_event(
             KeyCode::Esc => {
                 // Exit search mode, keep query active
                 app_state.search_mode = false;
+                app_state.search_navigated = false;
                 app_state.cursor = 0;
                 app_state.scroll_offset = 0;
                 return EventResult::Continue;
@@ -874,30 +925,45 @@ fn handle_results_event(
                 if modifiers.contains(KeyModifiers::CONTROL) {
                     // Exit search mode first so Ctrl+Enter handler can work
                     app_state.search_mode = false;
+                    app_state.search_navigated = false;
                     // Fall through to normal handling below
                 } else {
                     // Regular Enter - confirm search, stay in results with filter active
                     app_state.search_mode = false;
+                    app_state.search_navigated = false;
                     return EventResult::Continue;
                 }
             }
             KeyCode::Backspace => {
                 app_state.search_query.pop();
+                app_state.search_navigated = false; // Reset navigation flag when editing query
                 app_state.cursor = 0;
                 app_state.scroll_offset = 0;
                 return EventResult::Continue;
             }
             KeyCode::Char(c) => {
-                // Only accept printable characters
-                if !c.is_control() {
-                    app_state.search_query.push(c);
-                    app_state.cursor = 0;
-                    app_state.scroll_offset = 0;
+                // If it's a space and we navigated, don't add to query (will toggle selection below)
+                if c == ' ' && app_state.search_navigated {
+                    // Don't add space to query, let it fall through to toggle selection
+                    // Reset the flag so next space adds to query
+                    app_state.search_navigated = false;
+                } else {
+                    // Add character (including space) to query
+                    if !c.is_control() {
+                        app_state.search_query.push(c);
+                        app_state.search_navigated = false; // Reset navigation flag when typing
+                        app_state.cursor = 0;
+                        app_state.scroll_offset = 0;
+                    }
+                    return EventResult::Continue;
                 }
-                return EventResult::Continue;
             }
             // Allow navigation while searching - will fall through to normal handling
             KeyCode::Up | KeyCode::Down => {
+                // Mark that we navigated so space can toggle selection
+                app_state.search_navigated = true;
+                // Exit search mode when navigating so navigation works smoothly
+                app_state.search_mode = false;
                 // Fall through to normal navigation handling
             }
             _ => return EventResult::Continue,
@@ -993,8 +1059,9 @@ fn handle_results_event(
     match key {
         KeyCode::Char('q') | KeyCode::Char('Q') => EventResult::Quit,
         KeyCode::Char('/') => {
-            // Enter search mode
+            // Enter search mode (or re-enter if query exists)
             app_state.search_mode = true;
+            app_state.search_navigated = false; // Reset navigation flag when entering search mode
             EventResult::Continue
         }
         KeyCode::Esc => {
@@ -1803,13 +1870,37 @@ fn handle_confirm_event(
                     folder_idx,
                     ..
                 } => {
-                    // Toggle all items in this folder
+                    // Toggle all items in this folder (including child folders)
                     let confirm_groups = app_state.confirm_category_groups();
                     if let Some(group) = confirm_groups.get(cat_idx) {
-                        if let Some(folder) = group.folder_groups.get(folder_idx) {
-                            let folder_items: Vec<usize> = folder.items.clone();
-                            app_state.toggle_items(folder_items);
+                        if group.folder_groups.is_empty() {
+                            return EventResult::Continue;
                         }
+
+                        // Build folder hierarchy to find children
+                        let scan_path = &app_state.scan_path;
+                        let hierarchy = crate::tui::state::build_folder_hierarchy(
+                            scan_path,
+                            &group.name,
+                            &group.folder_groups,
+                        );
+
+                        // Recursively collect items from this folder and all its children
+                        fn collect_subtree_items(
+                            folder_idx: usize,
+                            group: &crate::tui::state::CategoryGroup,
+                            children: &[Vec<usize>],
+                        ) -> Vec<usize> {
+                            let mut items = group.folder_groups[folder_idx].items.clone();
+                            for &child_idx in &children[folder_idx] {
+                                items.extend(collect_subtree_items(child_idx, group, children));
+                            }
+                            items
+                        }
+
+                        let folder_items =
+                            collect_subtree_items(folder_idx, group, &hierarchy.children);
+                        app_state.toggle_items(folder_items);
                     }
                 }
                 crate::tui::state::ConfirmRow::CategoryHeader { cat_idx } => {
@@ -2241,6 +2332,7 @@ fn handle_disk_insights_event(
         ref mut current_path,
         ref mut cursor,
         ref mut sort_by,
+        ref mut selected_paths,
     } = app_state.screen
     {
         // Get current folder node
@@ -2331,18 +2423,14 @@ fn handle_disk_insights_event(
                 EventResult::Continue
             }
             KeyCode::Esc => {
-                // If there's an active search filter, clear it; otherwise go back to Results or Dashboard
+                // If there's an active search filter, clear it; otherwise go back to Dashboard
                 if !app_state.search_query.is_empty() {
                     app_state.search_query.clear();
                     *cursor = 0;
                     EventResult::Continue
                 } else {
-                    // Go back to Results if there are scan results, otherwise Dashboard
-                    if !app_state.all_items.is_empty() || !app_state.category_groups.is_empty() {
-                        app_state.screen = crate::tui::state::Screen::Results;
-                    } else {
-                        app_state.screen = crate::tui::state::Screen::Dashboard;
-                    }
+                    // Go back to Dashboard (not Results)
+                    app_state.screen = crate::tui::state::Screen::Dashboard;
                     app_state.search_query.clear();
                     EventResult::Continue
                 }
@@ -2353,39 +2441,24 @@ fn handle_disk_insights_event(
                 EventResult::Continue
             }
             KeyCode::Backspace => {
-                // If there's an active search filter, clear it; otherwise navigate back to parent or Results
+                // If there's an active search filter, clear it; otherwise navigate back to parent
                 if !app_state.search_query.is_empty() {
                     app_state.search_query.clear();
                     *cursor = 0;
                 } else {
-                    // Navigate back to parent if not at root
-                    if let Some(parent) = current_path.parent() {
-                        if parent != insights.root.path.as_path()
-                            && parent.starts_with(insights.root.path.as_path())
-                        {
-                            *current_path = parent.to_path_buf();
-                            *cursor = 0;
-                        } else {
-                            // At root, go back to Results if there are scan results, otherwise Dashboard
-                            if !app_state.all_items.is_empty()
-                                || !app_state.category_groups.is_empty()
-                            {
-                                app_state.screen = crate::tui::state::Screen::Results;
-                            } else {
-                                app_state.screen = crate::tui::state::Screen::Dashboard;
+                    let root = insights.root.path.as_path();
+
+                    // Navigate back to parent if we're not at the root.
+                    // This includes navigating from a direct child back to the root.
+                    if current_path.as_path() != root {
+                        if let Some(parent) = current_path.parent() {
+                            if parent.starts_with(root) {
+                                *current_path = parent.to_path_buf();
+                                *cursor = 0;
                             }
-                            app_state.search_query.clear();
                         }
-                    } else {
-                        // At root, go back to Results if there are scan results, otherwise Dashboard
-                        if !app_state.all_items.is_empty() || !app_state.category_groups.is_empty()
-                        {
-                            app_state.screen = crate::tui::state::Screen::Results;
-                        } else {
-                            app_state.screen = crate::tui::state::Screen::Dashboard;
-                        }
-                        app_state.search_query.clear();
                     }
+                    // If already at root, stay on DiskInsights screen (do nothing)
                 }
                 EventResult::Continue
             }
@@ -2445,6 +2518,30 @@ fn handle_disk_insights_event(
             KeyCode::Char('l') | KeyCode::Char('L') => {
                 // Show largest files (could open a modal or switch view)
                 // For now, just continue - could be enhanced later
+                EventResult::Continue
+            }
+            KeyCode::Char(' ') => {
+                // Toggle selection of current item
+                if *cursor < children_count {
+                    // Selected item is a folder
+                    let selected_child = &children[*cursor];
+                    if selected_paths.contains(&selected_child.path) {
+                        selected_paths.remove(&selected_child.path);
+                    } else {
+                        selected_paths.insert(selected_child.path.clone());
+                    }
+                } else {
+                    // Selected item is a file
+                    let file_index = *cursor - children_count;
+                    if file_index < files.len() {
+                        let selected_file = &files[file_index];
+                        if selected_paths.contains(&selected_file.path) {
+                            selected_paths.remove(&selected_file.path);
+                        } else {
+                            selected_paths.insert(selected_file.path.clone());
+                        }
+                    }
+                }
                 EventResult::Continue
             }
             _ => EventResult::Continue,
@@ -2724,8 +2821,9 @@ fn handle_status_event(
     _modifiers: KeyModifiers,
 ) -> EventResult {
     if let crate::tui::state::Screen::Status {
-        ref mut status,
-        ref mut last_refresh,
+        status: _,
+        last_refresh: _,
+        ref mut status_receiver,
     } = app_state.screen
     {
         match key {
@@ -2735,21 +2833,14 @@ fn handle_status_event(
                 EventResult::Continue
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
-                // Refresh status
-                use crate::status::gather_status;
-                use sysinfo::System;
+                // Refresh status (use async to avoid blocking UI)
+                use crate::status::gather_status_async;
 
-                let mut system = System::new();
-                system.refresh_all();
-                match gather_status(&mut system) {
-                    Ok(new_status) => {
-                        **status = new_status;
-                        *last_refresh = std::time::Instant::now();
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to refresh system status: {}", e);
-                    }
-                }
+                // Clear any existing receiver and start new refresh
+                *status_receiver = None;
+                let (tx, rx) = std::sync::mpsc::channel();
+                *status_receiver = Some(rx);
+                gather_status_async(tx);
                 EventResult::Continue
             }
             #[cfg(windows)]

@@ -1,1 +1,3 @@
-# Empty - stack size is configured in build.rs instead
+# Stack size is configured in build.rs instead
+# The build.rs script automatically detects and configures the appropriate linker
+# flags for both MSVC (default with rustup) and GNU toolchains.

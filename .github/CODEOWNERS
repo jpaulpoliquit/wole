@@ -3,22 +3,22 @@
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Global default owner
-* @jpaulpoliquit
+* @jplx05
 
 # Core source code
-/src/ @jpaulpoliquit
+/src/ @jplx05
 
 # CI/CD and GitHub workflows
-/.github/ @jpaulpoliquit
+/.github/ @jplx05
 
 # Build configuration
-/build.rs @jpaulpoliquit
-/Cargo.toml @jpaulpoliquit
+/build.rs @jplx05
+/Cargo.toml @jplx05
 
 # Documentation
-/README.md @jpaulpoliquit
-/CONTRIBUTING.md @jpaulpoliquit
-/docs/ @jpaulpoliquit
+/README.md @jplx05
+/CONTRIBUTING.md @jplx05
+/docs/ @jplx05
 
 # Installation scripts
-/install.* @jpaulpoliquit
+/install.* @jplx05

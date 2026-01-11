@@ -1,11 +1,14 @@
 use crate::config::{CategoryConfig, Config};
 use crate::output::{CategoryResult, OutputMode};
 use crate::project;
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::theme::Theme;
 use crate::utils;
 use anyhow::{Context, Result};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 /// Default build artifact directories to detect
 const DEFAULT_BUILD_ARTIFACTS: &[&str] = &[
@@ -180,6 +183,67 @@ pub fn scan(
         result.paths.push(path);
     }
 
+    Ok(result)
+}
+
+/// Scan for build artifacts with progress updates (files being visited during size calculation).
+pub fn scan_with_progress(
+    root: &Path,
+    project_age_days: u64,
+    config: Option<&CategoryConfig>,
+    global_config: &Config,
+    output_mode: OutputMode,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<CategoryResult> {
+    let reporter = Arc::new(ScanPathReporter::new("Build Artifacts", tx.clone(), 75));
+
+    let mut result = CategoryResult::default();
+    let artifacts_to_scan = get_build_artifacts(config);
+
+    let all_project_roots = if crate::project::detect_project_type(root).is_some() {
+        vec![root.to_path_buf()]
+    } else {
+        project::find_project_roots(root, global_config)
+    };
+
+    let inactive_project_roots: Vec<PathBuf> = all_project_roots
+        .par_iter()
+        .filter_map(|project_root| {
+            let is_active =
+                project::is_project_active(project_root, project_age_days).unwrap_or(true);
+            if is_active {
+                None
+            } else {
+                Some(project_root.clone())
+            }
+        })
+        .collect();
+
+    let all_artifact_paths: Vec<PathBuf> = inactive_project_roots
+        .par_iter()
+        .flat_map(|project_root| find_build_artifacts(project_root, &artifacts_to_scan))
+        .filter(|p| p.exists())
+        .collect();
+
+    let mut artifacts_with_sizes: Vec<(PathBuf, u64)> = all_artifact_paths
+        .iter()
+        .map(|path| {
+            let rep = Arc::clone(&reporter);
+            let size = utils::calculate_dir_size_with_progress(path, &|p| rep.emit_path(p));
+            (path.clone(), size)
+        })
+        .filter(|(_, size)| *size > 0)
+        .collect();
+
+    artifacts_with_sizes.par_sort_by(|a, b| b.1.cmp(&a.1));
+
+    for (path, size) in artifacts_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = output_mode;
     Ok(result)
 }
 

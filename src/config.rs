@@ -30,6 +30,9 @@ pub struct Config {
 
     #[serde(default)]
     pub categories: CategorySettings,
+
+    #[serde(default)]
+    pub cache: CacheSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +152,40 @@ pub struct HistorySettings {
     /// Maximum age of history entries in days (0 = keep forever)
     #[serde(default = "default_history_age_days")]
     pub max_age_days: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheSettings {
+    /// Enable incremental scanning (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// On first run (empty cache), also do a full-disk traversal baseline.
+    ///
+    /// This is significantly slower and heavier than category-only scanning,
+    /// but can improve future incremental coverage for broad scans.
+    #[serde(default = "default_false")]
+    pub full_disk_baseline: bool,
+
+    /// Max age of cache entries in days (default: 30)
+    #[serde(default = "default_cache_age")]
+    pub max_age_days: u64,
+
+    /// Cache content hashes for files larger than this (bytes)
+    /// Smaller files use mtime+size only (default: 10MB)
+    #[serde(default = "default_hash_threshold")]
+    pub content_hash_threshold_bytes: u64,
+}
+
+impl Default for CacheSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            full_disk_baseline: default_false(),
+            max_age_days: default_cache_age(),
+            content_hash_threshold_bytes: default_hash_threshold(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -366,6 +403,12 @@ fn default_scan_depth_user() -> u8 {
 }
 fn default_scan_depth_entire_disk() -> u8 {
     10
+}
+fn default_cache_age() -> u64 {
+    30
+}
+fn default_hash_threshold() -> u64 {
+    10 * 1024 * 1024 // 10MB
 }
 
 impl Config {

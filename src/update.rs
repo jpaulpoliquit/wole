@@ -40,7 +40,7 @@ fn read_line_from_stdin() -> io::Result<String> {
     Ok(input)
 }
 
-const REPO: &str = "jpaulpoliquit/wole";
+const REPO: &str = "jplx05/wole";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Deserialize)]

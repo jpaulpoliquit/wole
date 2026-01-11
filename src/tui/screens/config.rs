@@ -16,6 +16,7 @@ use crate::tui::{
         shortcuts::{get_shortcuts, render_shortcuts},
     },
 };
+use bytesize;
 
 pub fn render(f: &mut Frame, app_state: &AppState) {
     let area = f.area();
@@ -203,6 +204,53 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
         ),
     ]));
 
+    // Cache settings display (read-only)
+    field_lines.push(Line::from(vec![Span::styled(
+        "  Cache settings:",
+        Styles::header(),
+    )]));
+    field_lines.push(Line::from(vec![
+        Span::styled("    Enabled: ", Styles::secondary()),
+        Span::styled(format!("{}", config.cache.enabled), Styles::primary()),
+    ]));
+    // 9 full_disk_baseline (bool)
+    field_lines.push(Line::from(vec![
+        Span::styled("    Full disk baseline: ", Styles::secondary()),
+        Span::styled(
+            format!("{}", config.cache.full_disk_baseline),
+            field_style(9),
+        ),
+        Span::styled("   (Space/Enter toggles)", Styles::secondary()),
+    ]));
+    field_lines.push(Line::from(vec![
+        Span::styled("    Max age: ", Styles::secondary()),
+        Span::styled(
+            format!("{} days", config.cache.max_age_days),
+            Styles::primary(),
+        ),
+    ]));
+    field_lines.push(Line::from(vec![
+        Span::styled("    Hash threshold: ", Styles::secondary()),
+        Span::styled(
+            bytesize::to_string(config.cache.content_hash_threshold_bytes, false),
+            Styles::primary(),
+        ),
+    ]));
+    field_lines.push(Line::from(""));
+
+    // 10 clear_cache (action button)
+    field_lines.push(Line::from(vec![
+        Span::styled("  Clear scan cache:   ", Styles::secondary()),
+        Span::styled(
+            "[Press Enter to clear]",
+            if selected == 10 {
+                Styles::selected()
+            } else {
+                Styles::warning()
+            },
+        ),
+    ]));
+
     let text = Text::from(vec![
         Line::from(vec![Span::styled("Config file:", Styles::header())]),
         Line::from(vec![Span::styled(
@@ -238,7 +286,7 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
         Line::from(""),
         Line::from(vec![
             Span::styled("Editable settings:", Styles::header()),
-            Span::styled("  (↑↓ select, Enter edit)", Styles::secondary()),
+            Span::styled("  (↑↓ select, Enter edit/toggle)", Styles::secondary()),
         ]),
         // Insert fields here
         Line::from(""),
@@ -264,6 +312,20 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
             Span::styled("O", Styles::emphasis()),
             Span::styled(" to open the config file.", Styles::secondary()),
         ]),
+        Line::from(vec![
+            Span::styled("  - Full disk baseline: ", Styles::secondary()),
+            Span::styled(
+                "On first scan only, traverses the whole drive to index file metadata.",
+                Styles::secondary(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("    ", Styles::secondary()),
+            Span::styled(
+                "It’s slower/heavier; keep OFF unless you want deepest cache coverage.",
+                Styles::secondary(),
+            ),
+        ]),
     ]);
 
     // Build final text by splicing in field_lines + message.
@@ -284,8 +346,8 @@ fn render_body(f: &mut Frame, area: Rect, app_state: &AppState) {
         combined.push(Line::from(""));
     }
 
-    // Append tips (last 6 lines from the original text vector)
-    let tail_start = text.lines.len().saturating_sub(6);
+    // Append tips (last N lines from the original text vector)
+    let tail_start = text.lines.len().saturating_sub(8);
     for line in text.lines.iter().skip(tail_start) {
         combined.push(line.clone());
     }
