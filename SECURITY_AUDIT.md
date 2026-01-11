@@ -480,7 +480,7 @@ The following are **never** targeted for deletion:
 
 **Commitment:** This audit certifies that Sweep implements defense-in-depth security practices and prioritizes user data safety above all else. We default to non-destructive operations and require explicit user action for permanent deletions.
 
-*For security concerns or vulnerability reports, please open an issue at [https://github.com/jpaulpoliquit/wole/issues*](https://github.com/jpaulpoliquit/wole/issues)
+*For security concerns or vulnerability reports, please open an issue at [https://github.com/jplx05/wole/issues*](https://github.com/jplx05/wole/issues)
 
 ---
 

@@ -3,7 +3,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$REPO = "jpaulpoliquit/wole"
+$REPO = "jplx05/wole"
 
 # Function to download file with progress
 function Download-FileWithProgress {
