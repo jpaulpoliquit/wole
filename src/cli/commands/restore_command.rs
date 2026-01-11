@@ -33,7 +33,11 @@ pub(crate) fn handle_restore(
             Ok(result) => {
                 if output_mode != OutputMode::Quiet {
                     println!();
-                    println!("{} {}", Theme::success("OK"), Theme::success(&result.summary()));
+                    println!(
+                        "{} {}",
+                        Theme::success("OK"),
+                        Theme::success(&result.summary())
+                    );
                 }
             }
             Err(e) => {
@@ -46,7 +50,11 @@ pub(crate) fn handle_restore(
             Ok(result) => {
                 if output_mode != OutputMode::Quiet {
                     println!();
-                    println!("{} {}", Theme::success("OK"), Theme::success(&result.summary()));
+                    println!(
+                        "{} {}",
+                        Theme::success("OK"),
+                        Theme::success(&result.summary())
+                    );
                 }
             }
             Err(e) => {
@@ -59,7 +67,11 @@ pub(crate) fn handle_restore(
             Ok(result) => {
                 if output_mode != OutputMode::Quiet {
                     println!();
-                    println!("{} {}", Theme::success("OK"), Theme::success(&result.summary()));
+                    println!(
+                        "{} {}",
+                        Theme::success("OK"),
+                        Theme::success(&result.summary())
+                    );
                 }
             }
             Err(e) => {
@@ -74,7 +86,11 @@ pub(crate) fn handle_restore(
             Ok(result) => {
                 if output_mode != OutputMode::Quiet {
                     println!();
-                    println!("{} {}", Theme::success("OK"), Theme::success(&result.summary()));
+                    println!(
+                        "{} {}",
+                        Theme::success("OK"),
+                        Theme::success(&result.summary())
+                    );
                 }
             }
             Err(e) => {
@@ -87,7 +103,11 @@ pub(crate) fn handle_restore(
             Ok(result) => {
                 if output_mode != OutputMode::Quiet {
                     println!();
-                    println!("{} {}", Theme::success("OK"), Theme::success(&result.summary()));
+                    println!(
+                        "{} {}",
+                        Theme::success("OK"),
+                        Theme::success(&result.summary())
+                    );
                 }
             }
             Err(e) => {

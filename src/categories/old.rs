@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::git;
 use crate::output::{CategoryResult, OutputMode};
 use crate::project;
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::theme::Theme;
 use crate::utils;
 use anyhow::{Context, Result};
@@ -9,6 +10,8 @@ use bytesize;
 use chrono::{Duration, Utc};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 /// Maximum number of results to return
 const MAX_RESULTS: usize = 200;
@@ -54,7 +57,14 @@ pub fn scan(
         if output_mode != OutputMode::Quiet {
             println!("    {} Scanning {}", Theme::muted("•"), dir.display());
         }
-        scan_directory(dir, &cutoff, &mut files_with_sizes, config, output_mode)?;
+        scan_directory(
+            dir,
+            &cutoff,
+            &mut files_with_sizes,
+            config,
+            output_mode,
+            None,
+        )?;
     }
 
     // Sort by size descending (biggest first)
@@ -124,7 +134,44 @@ fn get_user_directories() -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
-use std::sync::Arc;
+/// Scan for old files with TUI progress updates (current file path).
+pub fn scan_with_progress(
+    root: &Path,
+    min_age_days: u64,
+    config: &Config,
+    output_mode: OutputMode,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<CategoryResult> {
+    let reporter = Arc::new(ScanPathReporter::new("Old Files", tx.clone(), 75));
+
+    let cutoff = Utc::now() - Duration::days(min_age_days as i64);
+    let user_dirs = get_user_directories()?;
+    let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
+
+    for dir in &user_dirs {
+        scan_directory(
+            dir,
+            &cutoff,
+            &mut files_with_sizes,
+            config,
+            output_mode,
+            Some(Arc::clone(&reporter)),
+        )?;
+    }
+
+    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.truncate(MAX_RESULTS);
+
+    let mut result = CategoryResult::default();
+    for (path, size) in files_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = root;
+    Ok(result)
+}
 
 /// Scan a directory for old files with optimizations
 fn scan_directory(
@@ -133,6 +180,7 @@ fn scan_directory(
     files: &mut Vec<(PathBuf, u64)>,
     config: &Config,
     _output_mode: OutputMode,
+    reporter: Option<Arc<ScanPathReporter>>,
 ) -> Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -158,7 +206,10 @@ fn scan_directory(
                     let path = e.path();
 
                     // 1. Skip symlinks/junctions
-                    if e.file_type().is_symlink() || utils::is_windows_reparse_point(&path) {
+                    if e.file_type().is_symlink() {
+                        return false;
+                    }
+                    if e.file_type().is_dir() && utils::is_windows_reparse_point(&path) {
                         return false;
                     }
 
@@ -203,6 +254,9 @@ fn scan_directory(
 
     for e in walk.into_iter().flatten() {
         let path = e.path();
+        if let Some(ref reporter) = reporter {
+            reporter.emit_path(&path);
+        }
 
         // We only care about files
         if !e.file_type().is_file() {

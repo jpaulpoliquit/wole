@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::git;
 use crate::output::{CategoryResult, OutputMode};
 use crate::project;
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::theme::Theme;
 use crate::utils;
 use anyhow::{Context, Result};
@@ -9,6 +10,7 @@ use bytesize;
 use jwalk::WalkDir;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 /// Maximum number of results to return
@@ -55,6 +57,7 @@ pub fn scan(
             &mut files_with_sizes,
             config,
             output_mode,
+            None,
         )?;
     }
 
@@ -108,6 +111,43 @@ pub fn scan(
     Ok(result)
 }
 
+/// Scan for large files with TUI progress updates (current file path).
+pub fn scan_with_progress(
+    root: &Path,
+    min_size_bytes: u64,
+    config: &Config,
+    output_mode: OutputMode,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<CategoryResult> {
+    let reporter = Arc::new(ScanPathReporter::new("Large Files", tx.clone(), 75));
+
+    let mut result = CategoryResult::default();
+    let user_dirs = get_user_directories()?;
+    let mut files_with_sizes: Vec<(PathBuf, u64)> = Vec::new();
+
+    for dir in &user_dirs {
+        scan_directory(
+            dir,
+            min_size_bytes,
+            &mut files_with_sizes,
+            config,
+            output_mode,
+            Some(Arc::clone(&reporter)),
+        )?;
+    }
+
+    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.truncate(MAX_RESULTS);
+    for (path, size) in files_with_sizes {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path);
+    }
+
+    let _ = root;
+    Ok(result)
+}
+
 /// Get user directories to scan (Downloads, Documents, Desktop, Pictures, Videos, Music)
 fn get_user_directories() -> Result<Vec<PathBuf>> {
     let mut dirs = Vec::new();
@@ -132,6 +172,7 @@ fn scan_directory(
     files: &mut Vec<(PathBuf, u64)>,
     config: &Config,
     _output_mode: OutputMode,
+    reporter: Option<Arc<ScanPathReporter>>,
 ) -> Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -209,6 +250,9 @@ fn scan_directory(
         .filter_map(|e| e.ok())
         .for_each(move |entry| {
             let path = entry.path();
+            if let Some(ref reporter) = reporter {
+                reporter.emit_path(&path);
+            }
 
             // Check if it's a file
             if !entry.file_type().is_file() {

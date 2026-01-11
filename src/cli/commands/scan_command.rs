@@ -8,7 +8,6 @@ use crate::output::{self, OutputMode};
 use crate::scanner;
 use crate::size;
 use crate::theme::Theme;
-use crate::utils;
 use std::path::{Path, PathBuf};
 
 // Helper function to format numbers (copied from output.rs for local use)
@@ -133,7 +132,7 @@ pub(crate) fn handle_scan(
     // Default to current directory to avoid stack overflow from OneDrive/UserDirs
     // PERFORMANCE FIX: Avoid OneDrive paths which are very slow to scan on Windows
     // Use current directory instead, which is faster and more predictable
-    let mut scan_path = path.unwrap_or_else(|| {
+    let scan_path = path.unwrap_or_else(|| {
         // Use current directory as default - faster and avoids OneDrive sync issues
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     });
@@ -146,9 +145,9 @@ pub(crate) fn handle_scan(
         Some(project_age),
         Some(min_age),
         Some(
-            size::parse_size(&min_size).map_err(|e| {
-                anyhow::anyhow!("Invalid size format '{}': {}", min_size, e)
-            })? / (1024 * 1024),
+            size::parse_size(&min_size)
+                .map_err(|e| anyhow::anyhow!("Invalid size format '{}': {}", min_size, e))?
+                / (1024 * 1024),
         ), // Convert bytes to MB for config
     );
 
@@ -157,35 +156,69 @@ pub(crate) fn handle_scan(
 
     // Handle cache flags
     let use_cache = !no_cache && config.cache.enabled && !force_full;
-    
+
     if clear_cache {
         if let Ok(mut scan_cache) = crate::scan_cache::ScanCache::open() {
             // Get categories to clear
             let categories: Vec<&str> = if all {
-                vec!["cache", "app_cache", "temp", "trash", "build", "downloads", "large", "old", "applications", "windows_update", "event_logs"]
+                vec![
+                    "cache",
+                    "app_cache",
+                    "temp",
+                    "trash",
+                    "build",
+                    "downloads",
+                    "large",
+                    "old",
+                    "applications",
+                    "windows_update",
+                    "event_logs",
+                ]
             } else {
                 let mut cats = Vec::new();
-                if cache { cats.push("cache"); }
-                if app_cache { cats.push("app_cache"); }
-                if temp { cats.push("temp"); }
-                if trash { cats.push("trash"); }
-                if build { cats.push("build"); }
-                if downloads { cats.push("downloads"); }
-                if large { cats.push("large"); }
-                if old { cats.push("old"); }
-                if applications { cats.push("applications"); }
-                if windows_update { cats.push("windows_update"); }
-                if event_logs { cats.push("event_logs"); }
+                if cache {
+                    cats.push("cache");
+                }
+                if app_cache {
+                    cats.push("app_cache");
+                }
+                if temp {
+                    cats.push("temp");
+                }
+                if trash {
+                    cats.push("trash");
+                }
+                if build {
+                    cats.push("build");
+                }
+                if downloads {
+                    cats.push("downloads");
+                }
+                if large {
+                    cats.push("large");
+                }
+                if old {
+                    cats.push("old");
+                }
+                if applications {
+                    cats.push("applications");
+                }
+                if windows_update {
+                    cats.push("windows_update");
+                }
+                if event_logs {
+                    cats.push("event_logs");
+                }
                 cats
             };
-            
+
             if categories.is_empty() {
                 // Full reset: clear cache + scan history so first-scan detection triggers again.
                 scan_cache.clear_all()?;
             } else {
                 scan_cache.invalidate(Some(&categories))?;
             }
-            
+
             if output_mode != OutputMode::Quiet {
                 println!("Cache cleared for specified categories.");
             }
@@ -222,7 +255,10 @@ pub(crate) fn handle_scan(
             Ok(cache) => Some(cache),
             Err(e) => {
                 if output_mode != OutputMode::Quiet {
-                    eprintln!("Warning: Failed to open scan cache: {}. Continuing without cache.", e);
+                    eprintln!(
+                        "Warning: Failed to open scan cache: {}. Continuing without cache.",
+                        e
+                    );
                 }
                 None
             }
@@ -231,17 +267,15 @@ pub(crate) fn handle_scan(
         None
     };
 
-    let mut first_scan_full_disk = false;
+    let mut first_scan_detected = false;
     if let Some(cache) = scan_cache.as_ref() {
         match cache.get_previous_scan_id() {
-            Ok(None) => {
-                first_scan_full_disk = true;
-            }
+            Ok(None) => first_scan_detected = true,
             Ok(Some(_)) => {}
             Err(e) => {
                 if output_mode != OutputMode::Quiet {
                     eprintln!(
-                        "Warning: Failed to read scan cache state: {}. Continuing without full disk baseline.",
+                        "Warning: Failed to read scan cache state: {}. Continuing without first-scan baseline.",
                         e
                     );
                 }
@@ -249,15 +283,43 @@ pub(crate) fn handle_scan(
         }
     }
 
-    if first_scan_full_disk {
-        scan_path = utils::get_root_disk_path();
-        if output_mode != OutputMode::Quiet {
+    if first_scan_detected && output_mode != OutputMode::Quiet {
+        if config.cache.full_disk_baseline {
+            // Deep baseline will be handled by scanner (full-disk traversal + category scans).
             if json {
-                eprintln!("First scan detected: scanning all categories from root to build baseline.");
+                eprintln!("First scan: building deep baseline (full-disk traversal enabled).");
             } else {
                 println!();
-                println!("{}", Theme::warning("First scan detected: scanning all enabled categories from root to build baseline."));
-                println!("{}", Theme::muted("This may take longer than usual. Future scans will be faster using incremental cache."));
+                println!(
+                    "{}",
+                    Theme::warning(
+                        "First scan: building deep baseline (full-disk traversal enabled)."
+                    )
+                );
+                println!(
+                    "{}",
+                    Theme::muted("This is heavier/slower. Turn it off via config: cache.full_disk_baseline = false")
+                );
+                println!();
+            }
+        } else {
+            // Fast default: category-only scan (no full-disk walk).
+            if json {
+                eprintln!("First scan: building cache from category scans (fast baseline).");
+            } else {
+                println!();
+                println!(
+                    "{}",
+                    Theme::warning(
+                        "First scan: building cache from category scans (fast baseline)."
+                    )
+                );
+                println!(
+                    "{}",
+                    Theme::muted(
+                        "Tip: enable deep baseline via config: cache.full_disk_baseline = true"
+                    )
+                );
                 println!();
             }
         }
@@ -278,11 +340,14 @@ pub(crate) fn handle_scan(
     }
 
     // After first scan, show cache statistics
-    if first_scan_full_disk && output_mode != OutputMode::Quiet {
+    if first_scan_detected && output_mode != OutputMode::Quiet {
         if let Some(cache) = scan_cache.as_ref() {
             if let Ok((total_files, total_storage)) = cache.get_cache_stats() {
                 println!();
-                println!("{}", Theme::header("First Scan Complete - Cache Baseline Built"));
+                println!(
+                    "{}",
+                    Theme::header("First Scan Complete - Cache Baseline Built")
+                );
                 println!("{}", Theme::divider(60));
                 println!();
                 println!(
@@ -309,7 +374,10 @@ pub(crate) fn handle_scan(
                     );
                 }
                 println!();
-                println!("{}", Theme::muted("Future scans will use incremental cache for faster results."));
+                println!(
+                    "{}",
+                    Theme::muted("Future scans will use incremental cache for faster results.")
+                );
                 println!();
             }
         }

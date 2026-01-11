@@ -669,9 +669,12 @@ impl Cli {
                     exclude,
                     output_mode,
                 ),
-                Commands::Config { show, reset, edit, clear_cache } => {
-                    commands::config_command::handle_config(show, reset, edit, clear_cache)
-                }
+                Commands::Config {
+                    show,
+                    reset,
+                    edit,
+                    clear_cache,
+                } => commands::config_command::handle_config(show, reset, edit, clear_cache),
                 Commands::Restore {
                     last,
                     path,
@@ -685,15 +688,13 @@ impl Cli {
                     self.quiet,
                     self.verbose,
                 ),
-                Commands::Remove { config, data, yes } => {
-                    commands::remove_command::handle_remove(
-                        config,
-                        data,
-                        yes,
-                        self.quiet,
-                        self.verbose,
-                    )
-                }
+                Commands::Remove { config, data, yes } => commands::remove_command::handle_remove(
+                    config,
+                    data,
+                    yes,
+                    self.quiet,
+                    self.verbose,
+                ),
                 Commands::Update { yes, check } => {
                     commands::update_command::handle_update(yes, check, output_mode)
                 }

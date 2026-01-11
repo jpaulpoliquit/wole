@@ -122,7 +122,13 @@ fn batch_clean_category_internal(
                 continue;
             }
             let size = path_sizes.get(path).copied().unwrap_or(0);
-            log.log_failure(path, size, category_name, permanent, "Batch deletion failed");
+            log.log_failure(
+                path,
+                size,
+                category_name,
+                permanent,
+                "Batch deletion failed",
+            );
         }
     }
 

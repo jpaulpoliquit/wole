@@ -36,8 +36,9 @@ pub fn delete_with_precheck(path: &Path, permanent: bool) -> Result<DeleteOutcom
                 if !path.exists() {
                     Ok(DeleteOutcome::SkippedMissing)
                 } else {
-                    Err(err)
-                        .with_context(|| format!("Failed to permanently delete: {}", path.display()))
+                    Err(err).with_context(|| {
+                        format!("Failed to permanently delete: {}", path.display())
+                    })
                 }
             }
         }

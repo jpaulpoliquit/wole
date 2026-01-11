@@ -9,7 +9,6 @@ use crate::output::{self, OutputMode};
 use crate::scanner;
 use crate::size;
 use crate::theme::Theme;
-use crate::utils;
 use std::path::{Path, PathBuf};
 
 // Helper function to format numbers (copied from output.rs for local use)
@@ -138,7 +137,7 @@ pub(crate) fn handle_clean(
         )
     };
 
-    let mut scan_path = path.unwrap_or_else(|| {
+    let scan_path = path.unwrap_or_else(|| {
         directories::UserDirs::new()
             .expect("Failed to get user directory")
             .home_dir()
@@ -153,9 +152,9 @@ pub(crate) fn handle_clean(
         Some(project_age),
         Some(min_age),
         Some(
-            size::parse_size(&min_size).map_err(|e| {
-                anyhow::anyhow!("Invalid size format '{}': {}", min_size, e)
-            })? / (1024 * 1024),
+            size::parse_size(&min_size)
+                .map_err(|e| anyhow::anyhow!("Invalid size format '{}': {}", min_size, e))?
+                / (1024 * 1024),
         ), // Convert bytes to MB for config
     );
 
@@ -179,17 +178,15 @@ pub(crate) fn handle_clean(
         None
     };
 
-    let mut first_scan_full_disk = false;
+    let mut first_scan_detected = false;
     if let Some(cache) = scan_cache.as_ref() {
         match cache.get_previous_scan_id() {
-            Ok(None) => {
-                first_scan_full_disk = true;
-            }
+            Ok(None) => first_scan_detected = true,
             Ok(Some(_)) => {}
             Err(e) => {
                 if output_mode != OutputMode::Quiet {
                     eprintln!(
-                        "Warning: Failed to read scan cache state: {}. Continuing without full disk baseline.",
+                        "Warning: Failed to read scan cache state: {}. Continuing without first-scan baseline.",
                         e
                     );
                 }
@@ -197,15 +194,43 @@ pub(crate) fn handle_clean(
         }
     }
 
-    if first_scan_full_disk {
-        scan_path = utils::get_root_disk_path();
-        if output_mode != OutputMode::Quiet {
+    if first_scan_detected && output_mode != OutputMode::Quiet {
+        if config.cache.full_disk_baseline {
             if json {
-                eprintln!("First scan detected: scanning all categories from root to build baseline.");
+                eprintln!("First scan: building deep baseline (full-disk traversal enabled).");
             } else {
                 println!();
-                println!("{}", crate::theme::Theme::warning("First scan detected: scanning all enabled categories from root to build baseline."));
-                println!("{}", crate::theme::Theme::muted("This may take longer than usual. Future scans will be faster using incremental cache."));
+                println!(
+                    "{}",
+                    crate::theme::Theme::warning(
+                        "First scan: building deep baseline (full-disk traversal enabled)."
+                    )
+                );
+                println!(
+                    "{}",
+                    crate::theme::Theme::muted(
+                        "This is heavier/slower. Turn it off via config: cache.full_disk_baseline = false"
+                    )
+                );
+                println!();
+            }
+        } else {
+            if json {
+                eprintln!("First scan: building cache from category scans (fast baseline).");
+            } else {
+                println!();
+                println!(
+                    "{}",
+                    crate::theme::Theme::warning(
+                        "First scan: building cache from category scans (fast baseline)."
+                    )
+                );
+                println!(
+                    "{}",
+                    crate::theme::Theme::muted(
+                        "Tip: enable deep baseline via config: cache.full_disk_baseline = true"
+                    )
+                );
                 println!();
             }
         }
@@ -250,11 +275,14 @@ pub(crate) fn handle_clean(
     }
 
     // After first scan, show cache statistics
-    if first_scan_full_disk && output_mode != OutputMode::Quiet {
+    if first_scan_detected && output_mode != OutputMode::Quiet {
         if let Some(cache) = scan_cache.as_ref() {
             if let Ok((total_files, total_storage)) = cache.get_cache_stats() {
                 println!();
-                println!("{}", Theme::header("First Scan Complete - Cache Baseline Built"));
+                println!(
+                    "{}",
+                    Theme::header("First Scan Complete - Cache Baseline Built")
+                );
                 println!("{}", Theme::divider(60));
                 println!();
                 println!(
@@ -281,7 +309,10 @@ pub(crate) fn handle_clean(
                     );
                 }
                 println!();
-                println!("{}", Theme::muted("Future scans will use incremental cache for faster results."));
+                println!(
+                    "{}",
+                    Theme::muted("Future scans will use incremental cache for faster results.")
+                );
                 println!();
             }
         }

@@ -450,14 +450,14 @@ pub fn detect_file_type(path: &Path) -> FileType {
         .file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.to_lowercase());
-    
+
     // Handle files without extensions
     if file_name.is_none() {
         return FileType::Other;
     }
-    
+
     let file_name_str = file_name.unwrap();
-    
+
     // Check for files without extensions but with known names
     let no_ext_files: &[(&str, FileType)] = &[
         // Container files
@@ -499,14 +499,14 @@ pub fn detect_file_type(path: &Path) -> FileType {
         ("init.vim", FileType::Code),
         ("init.lua", FileType::Code),
     ];
-    
+
     // Check files without extensions
     for (name, file_type) in no_ext_files {
         if file_name_str == *name || file_name_str == name.to_uppercase() {
             return *file_type;
         }
     }
-    
+
     // Check for multiple extensions (e.g., .tar.gz, .min.js, .backup.bak)
     // Common double extensions that should be checked first
     let double_extensions: &[(&str, FileType)] = &[
@@ -531,14 +531,14 @@ pub fn detect_file_type(path: &Path) -> FileType {
         ("log.bz2", FileType::Log),
         ("log.zip", FileType::Log),
     ];
-    
+
     // Check double extensions first
     for (double_ext, file_type) in double_extensions {
         if file_name_str.ends_with(&format!(".{}", double_ext)) {
             return *file_type;
         }
     }
-    
+
     // Get primary extension (last extension)
     let ext = path
         .extension()
@@ -994,99 +994,135 @@ mod tests {
         // Video files
         assert_eq!(detect_file_type(Path::new("movie.mp4")), FileType::Video);
         assert_eq!(detect_file_type(Path::new("video.mkv")), FileType::Video);
-        
+
         // Audio files
         assert_eq!(detect_file_type(Path::new("song.m4a")), FileType::Audio);
         assert_eq!(detect_file_type(Path::new("music.mp3")), FileType::Audio);
         assert_eq!(detect_file_type(Path::new("sound.wav")), FileType::Audio);
-        
+
         // Image files
         assert_eq!(detect_file_type(Path::new("photo.heic")), FileType::Image);
         assert_eq!(detect_file_type(Path::new("image.jpg")), FileType::Image);
         assert_eq!(detect_file_type(Path::new("photo.jpeg")), FileType::Image);
         assert_eq!(detect_file_type(Path::new("photo.raw")), FileType::Image);
         assert_eq!(detect_file_type(Path::new("picture.png")), FileType::Image);
-        
+
         // Disk images
         assert_eq!(
             detect_file_type(Path::new("windows.iso")),
             FileType::DiskImage
         );
-        
+
         // Archives
         assert_eq!(detect_file_type(Path::new("backup.zip")), FileType::Archive);
-        
+
         // Installers
         assert_eq!(
             detect_file_type(Path::new("setup.exe")),
             FileType::Installer
         );
-        
+
         // Documents
-        assert_eq!(detect_file_type(Path::new("document.docx")), FileType::Document);
+        assert_eq!(
+            detect_file_type(Path::new("document.docx")),
+            FileType::Document
+        );
         assert_eq!(detect_file_type(Path::new("file.pdf")), FileType::Document);
-        
+
         // Spreadsheets
-        assert_eq!(detect_file_type(Path::new("data.csv")), FileType::Spreadsheet);
-        assert_eq!(detect_file_type(Path::new("spreadsheet.xlsx")), FileType::Spreadsheet);
-        
+        assert_eq!(
+            detect_file_type(Path::new("data.csv")),
+            FileType::Spreadsheet
+        );
+        assert_eq!(
+            detect_file_type(Path::new("spreadsheet.xlsx")),
+            FileType::Spreadsheet
+        );
+
         // Presentations
-        assert_eq!(detect_file_type(Path::new("presentation.pptx")), FileType::Presentation);
-        
+        assert_eq!(
+            detect_file_type(Path::new("presentation.pptx")),
+            FileType::Presentation
+        );
+
         // Text files
         assert_eq!(detect_file_type(Path::new("readme.txt")), FileType::Text);
         assert_eq!(detect_file_type(Path::new("notes.md")), FileType::Text);
-        
+
         // Code files
         assert_eq!(detect_file_type(Path::new("code.js")), FileType::Code);
         assert_eq!(detect_file_type(Path::new("config.json")), FileType::Code);
         assert_eq!(detect_file_type(Path::new("archive.har")), FileType::Code);
         assert_eq!(detect_file_type(Path::new("task.task")), FileType::Code);
         assert_eq!(detect_file_type(Path::new("script.py")), FileType::Code);
-        
+
         // Databases
-        assert_eq!(detect_file_type(Path::new("database.db")), FileType::Database);
-        
+        assert_eq!(
+            detect_file_type(Path::new("database.db")),
+            FileType::Database
+        );
+
         // Font files
         assert_eq!(detect_file_type(Path::new("font.ttf")), FileType::Font);
         assert_eq!(detect_file_type(Path::new("font.woff2")), FileType::Font);
-        
+
         // Log files
         assert_eq!(detect_file_type(Path::new("app.log")), FileType::Log);
-        
+
         // Certificate files
-        assert_eq!(detect_file_type(Path::new("cert.pem")), FileType::Certificate);
-        assert_eq!(detect_file_type(Path::new("cert.crt")), FileType::Certificate);
-        
+        assert_eq!(
+            detect_file_type(Path::new("cert.pem")),
+            FileType::Certificate
+        );
+        assert_eq!(
+            detect_file_type(Path::new("cert.crt")),
+            FileType::Certificate
+        );
+
         // Build files
         assert_eq!(detect_file_type(Path::new("file.o")), FileType::Build);
         assert_eq!(detect_file_type(Path::new("file.class")), FileType::Build);
-        
+
         // Subtitle files
-        assert_eq!(detect_file_type(Path::new("subtitle.srt")), FileType::Subtitle);
-        
+        assert_eq!(
+            detect_file_type(Path::new("subtitle.srt")),
+            FileType::Subtitle
+        );
+
         // CAD files
         assert_eq!(detect_file_type(Path::new("drawing.dwg")), FileType::CAD);
-        
+
         // 3D Model files
         assert_eq!(detect_file_type(Path::new("model.fbx")), FileType::Model3D);
-        
+
         // GIS files
         assert_eq!(detect_file_type(Path::new("map.shp")), FileType::GIS);
-        
+
         // Container files
-        assert_eq!(detect_file_type(Path::new("Dockerfile")), FileType::Container);
-        
+        assert_eq!(
+            detect_file_type(Path::new("Dockerfile")),
+            FileType::Container
+        );
+
         // Edge cases: Multiple extensions
-        assert_eq!(detect_file_type(Path::new("archive.tar.gz")), FileType::Archive);
+        assert_eq!(
+            detect_file_type(Path::new("archive.tar.gz")),
+            FileType::Archive
+        );
         assert_eq!(detect_file_type(Path::new("script.min.js")), FileType::Code);
-        assert_eq!(detect_file_type(Path::new("backup.backup.bak")), FileType::Backup);
-        
+        assert_eq!(
+            detect_file_type(Path::new("backup.backup.bak")),
+            FileType::Backup
+        );
+
         // Edge cases: Files without extension
         assert_eq!(detect_file_type(Path::new("README")), FileType::Other);
         assert_eq!(detect_file_type(Path::new("Makefile")), FileType::Code);
-        assert_eq!(detect_file_type(Path::new("Dockerfile")), FileType::Container);
-        
+        assert_eq!(
+            detect_file_type(Path::new("Dockerfile")),
+            FileType::Container
+        );
+
         // Edge cases: Unknown extensions
         assert_eq!(detect_file_type(Path::new("unknown.xyz")), FileType::Other);
         assert_eq!(detect_file_type(Path::new("file.unknown")), FileType::Other);

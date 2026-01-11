@@ -6,7 +6,12 @@ use crate::config::Config;
 use crate::theme::Theme;
 use bytesize;
 
-pub(crate) fn handle_config(show: bool, reset: bool, edit: bool, clear_cache: bool) -> anyhow::Result<()> {
+pub(crate) fn handle_config(
+    show: bool,
+    reset: bool,
+    edit: bool,
+    clear_cache: bool,
+) -> anyhow::Result<()> {
     if show {
         let config = Config::load_or_create();
         println!("{}", Theme::header("Current Configuration"));
@@ -57,17 +62,30 @@ pub(crate) fn handle_config(show: bool, reset: bool, edit: bool, clear_cache: bo
         println!("  Dry run default: {}", config.safety.dry_run_default);
         println!();
         println!("Performance Settings:");
-        println!("  Scan threads: {} (0 = auto)", config.performance.scan_threads);
+        println!(
+            "  Scan threads: {} (0 = auto)",
+            config.performance.scan_threads
+        );
         println!("  Batch size: {}", config.performance.batch_size);
-        println!("  Parallel scanning: {}", config.performance.parallel_scanning);
+        println!(
+            "  Parallel scanning: {}",
+            config.performance.parallel_scanning
+        );
         println!();
         println!("History Settings:");
         println!("  Enabled: {}", config.history.enabled);
-        println!("  Max entries: {} (0 = unlimited)", config.history.max_entries);
-        println!("  Max age: {} days (0 = forever)", config.history.max_age_days);
+        println!(
+            "  Max entries: {} (0 = unlimited)",
+            config.history.max_entries
+        );
+        println!(
+            "  Max age: {} days (0 = forever)",
+            config.history.max_age_days
+        );
         println!();
         println!("Cache Settings:");
         println!("  Enabled: {}", config.cache.enabled);
+        println!("  Full disk baseline: {}", config.cache.full_disk_baseline);
         println!("  Max age: {} days", config.cache.max_age_days);
         println!(
             "  Content hash threshold: {}",
@@ -157,17 +175,30 @@ pub(crate) fn handle_config(show: bool, reset: bool, edit: bool, clear_cache: bo
         println!("  Dry run default: {}", config.safety.dry_run_default);
         println!();
         println!("Performance Settings:");
-        println!("  Scan threads: {} (0 = auto)", config.performance.scan_threads);
+        println!(
+            "  Scan threads: {} (0 = auto)",
+            config.performance.scan_threads
+        );
         println!("  Batch size: {}", config.performance.batch_size);
-        println!("  Parallel scanning: {}", config.performance.parallel_scanning);
+        println!(
+            "  Parallel scanning: {}",
+            config.performance.parallel_scanning
+        );
         println!();
         println!("History Settings:");
         println!("  Enabled: {}", config.history.enabled);
-        println!("  Max entries: {} (0 = unlimited)", config.history.max_entries);
-        println!("  Max age: {} days (0 = forever)", config.history.max_age_days);
+        println!(
+            "  Max entries: {} (0 = unlimited)",
+            config.history.max_entries
+        );
+        println!(
+            "  Max age: {} days (0 = forever)",
+            config.history.max_age_days
+        );
         println!();
         println!("Cache Settings:");
         println!("  Enabled: {}", config.cache.enabled);
+        println!("  Full disk baseline: {}", config.cache.full_disk_baseline);
         println!("  Max age: {} days", config.cache.max_age_days);
         println!(
             "  Content hash threshold: {}",

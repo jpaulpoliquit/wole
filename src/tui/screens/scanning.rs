@@ -64,7 +64,11 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
 
     // Adjust constraints for small viewports
     let status_height = if is_small {
-        if has_notice { 3 } else { 2 }
+        if has_notice {
+            3
+        } else {
+            2
+        }
     } else if has_notice {
         4
     } else {
@@ -109,17 +113,32 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
 
         // Calculate estimated remaining time based on progress
         let total_categories = progress.category_progress.len();
-        let completed_categories = progress.category_progress.iter().filter(|c| c.completed).count();
-        let estimated_remaining = if total_categories > 0 && completed_categories > 0 && completed_categories < total_categories {
+        let completed_categories = progress
+            .category_progress
+            .iter()
+            .filter(|c| c.completed)
+            .count();
+        let estimated_remaining = if total_categories > 0
+            && completed_categories > 0
+            && completed_categories < total_categories
+        {
             let avg_time_per_category = elapsed_secs as f64 / completed_categories as f64;
             let remaining_categories = total_categories - completed_categories;
             let estimated_secs = (avg_time_per_category * remaining_categories as f64) as u64;
             if estimated_secs < 60 {
                 Some(format!("~{}s", estimated_secs))
             } else if estimated_secs < 3600 {
-                Some(format!("~{}m {}s", estimated_secs / 60, estimated_secs % 60))
+                Some(format!(
+                    "~{}m {}s",
+                    estimated_secs / 60,
+                    estimated_secs % 60
+                ))
             } else {
-                Some(format!("~{}h {}m", estimated_secs / 3600, (estimated_secs % 3600) / 60))
+                Some(format!(
+                    "~{}h {}m",
+                    estimated_secs / 3600,
+                    (estimated_secs % 3600) / 60
+                ))
             }
         } else {
             None
@@ -129,10 +148,13 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
             status_text,
             Styles::emphasis(),
         )])];
-        
+
         // Add time information
         let time_info = if let Some(remaining) = estimated_remaining {
-            format!("Elapsed: {} │ Est. remaining: {}", elapsed_display, remaining)
+            format!(
+                "Elapsed: {} │ Est. remaining: {}",
+                elapsed_display, remaining
+            )
         } else {
             format!("Elapsed: {}", elapsed_display)
         };
@@ -140,7 +162,7 @@ pub fn render(f: &mut Frame, app_state: &AppState) {
             time_info,
             Styles::secondary(),
         )]));
-        
+
         if let Some(ref notice) = progress.notice {
             status_lines.push(Line::from(vec![Span::styled(
                 notice.clone(),

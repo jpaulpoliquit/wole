@@ -54,7 +54,10 @@ pub(crate) fn handle_optimize(
         println!("{}", Theme::divider_bold(60));
 
         if dry_run {
-            println!("{}", Theme::warning("DRY RUN MODE - No changes will be made"));
+            println!(
+                "{}",
+                Theme::warning("DRY RUN MODE - No changes will be made")
+            );
         }
         println!();
     }

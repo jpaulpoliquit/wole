@@ -82,9 +82,8 @@ impl CacheContextBuilder {
         CacheContext::new(
             self.unchanged_paths,
             self.files_to_scan,
-            self.record_signature.unwrap_or_else(|| {
-                Box::new(|_sig: &FileSignature, _cat: &str| Ok(()))
-            }),
+            self.record_signature
+                .unwrap_or_else(|| Box::new(|_sig: &FileSignature, _cat: &str| Ok(()))),
         )
     }
 }

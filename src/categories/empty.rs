@@ -1,9 +1,11 @@
 use crate::config::Config;
 use crate::output::CategoryResult;
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::utils;
 use anyhow::{Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use trash;
 use walkdir::WalkDir;
 
@@ -12,6 +14,33 @@ use walkdir::WalkDir;
 /// An empty folder is one that contains no files (recursively).
 /// Folders that only contain other empty folders are also considered empty.
 pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
+    scan_internal(_root, config, None)
+}
+
+/// Scan for empty folders with TUI progress updates (current directory path).
+pub fn scan_with_progress(
+    root: &Path,
+    config: &Config,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<CategoryResult> {
+    const CATEGORY: &str = "Empty Folders";
+
+    let _ = tx.send(ScanProgressEvent::CategoryStarted {
+        category: CATEGORY.to_string(),
+        total_units: None,
+        current_path: None,
+    });
+
+    let reporter = ScanPathReporter::new(CATEGORY, tx.clone(), 75);
+    scan_internal(root, config, Some(reporter))
+}
+
+/// Internal scan function that optionally uses a progress reporter
+fn scan_internal(
+    _root: &Path,
+    config: &Config,
+    reporter: Option<ScanPathReporter>,
+) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
 
@@ -61,6 +90,11 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
             // Skip if it's a system path
             if utils::is_system_path(path) {
                 continue;
+            }
+
+            // Emit path progress for TUI
+            if let Some(ref reporter) = reporter {
+                reporter.emit_path(path);
             }
 
             // Check if directory is empty

@@ -1,7 +1,7 @@
 //! Rebuild icon cache operation.
 
-use super::restart_explorer::do_restart_explorer;
 use super::super::result::OptimizeResult;
+use super::restart_explorer::do_restart_explorer;
 use std::env;
 use std::fs;
 use std::path::PathBuf;

@@ -272,7 +272,11 @@ pub fn print_human_with_options(
                         for path in &group.paths {
                             let file_type = crate::utils::detect_file_type(path);
                             let emoji = file_type.emoji();
-                            println!("     {} {}", emoji, Theme::muted(&path.display().to_string()));
+                            println!(
+                                "     {} {}",
+                                emoji,
+                                Theme::muted(&path.display().to_string())
+                            );
                         }
                     }
 
@@ -382,7 +386,10 @@ pub fn print_human_with_options(
         print_table_row(&[
             (Theme::header("Total"), col_widths[0]),
             (Theme::value(&total_items.to_string()), col_widths[1]),
-            (Theme::size(&bytesize::to_string(total_bytes, true)), col_widths[2]),
+            (
+                Theme::size(&bytesize::to_string(total_bytes, true)),
+                col_widths[2],
+            ),
             (Theme::success("Reclaimable"), col_widths[3]),
         ]);
         print_table_separator(&col_widths, "└", "┴", "┘");
@@ -788,7 +795,11 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
                     for path in &group.paths {
                         let file_type = crate::utils::detect_file_type(path);
                         let emoji = file_type.emoji();
-                        println!("     {} {}", emoji, Theme::muted(&path.display().to_string()));
+                        println!(
+                            "     {} {}",
+                            emoji,
+                            Theme::muted(&path.display().to_string())
+                        );
                     }
                 }
 

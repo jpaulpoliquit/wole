@@ -657,19 +657,31 @@ fn perform_scan_with_progress(
         min_size_bytes,
     };
 
-    let mut first_scan_full_disk = false;
+    let mut first_scan_detected = false;
     if config.cache.enabled {
         if let Ok(cache) = ScanCache::open() {
-            first_scan_full_disk = matches!(cache.get_previous_scan_id(), Ok(None));
+            first_scan_detected = matches!(cache.get_previous_scan_id(), Ok(None));
         }
     }
 
-    if first_scan_full_disk {
-        let root_path = crate::utils::get_root_disk_path();
-        app_state.scan_path = root_path.clone();
-        if let crate::tui::state::Screen::Scanning { ref mut progress } = app_state.screen {
-            progress.notice = Some("First scan: scanning all categories from root to build baseline (this may take longer)".to_string());
-            progress.current_path = Some(root_path);
+    if first_scan_detected {
+        if config.cache.full_disk_baseline {
+            // Deep baseline (heavier): full-disk traversal enabled.
+            let root_path = crate::utils::get_root_disk_path();
+            app_state.scan_path = root_path.clone();
+            if let crate::tui::state::Screen::Scanning { ref mut progress } = app_state.screen {
+                progress.notice = Some(
+                    "First scan: building deep baseline (full-disk traversal enabled)".to_string(),
+                );
+                progress.current_path = Some(root_path);
+            }
+        } else {
+            // Fast default: category-only scan (no full-disk walk).
+            if let crate::tui::state::Screen::Scanning { ref mut progress } = app_state.screen {
+                progress.notice = Some(
+                    "First scan: building cache from category scans (fast baseline)".to_string(),
+                );
+            }
         }
     }
 
@@ -959,7 +971,7 @@ fn perform_scan_with_progress(
     );
 
     // If this was a first scan, get cache stats for summary
-    if first_scan_full_disk {
+    if first_scan_detected {
         if let Ok(cache) = ScanCache::open() {
             if let Ok(stats) = cache.get_cache_stats() {
                 app_state.first_scan_stats = Some(stats);

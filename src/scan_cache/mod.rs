@@ -6,10 +6,10 @@
 
 pub mod context;
 pub mod database;
-pub mod signature;
 pub mod session;
+pub mod signature;
 
 pub use context::CacheContext;
 pub use database::ScanCache;
-pub use signature::{FileSignature, FileStatus};
 pub use session::{ScanSession, ScanStats};
+pub use signature::{FileSignature, FileStatus};

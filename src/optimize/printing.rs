@@ -1,8 +1,8 @@
 //! Optimization output formatting feature.
 
+use super::result::OptimizeResult;
 use crate::output::OutputMode;
 use crate::theme::Theme;
-use super::result::OptimizeResult;
 
 pub(crate) fn print_operation_start(message: &str, output_mode: OutputMode) {
     if output_mode != OutputMode::Quiet {

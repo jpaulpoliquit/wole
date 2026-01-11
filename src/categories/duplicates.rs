@@ -1,5 +1,6 @@
 use crate::config::{Config, DuplicatesConfig};
 use crate::output::CategoryResult;
+use crate::scan_events::{ScanPathReporter, ScanProgressEvent};
 use crate::utils;
 use anyhow::{Context, Result};
 use blake3::Hasher;
@@ -10,6 +11,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
 /// Size of partial hash sample (first N bytes)
@@ -145,6 +147,26 @@ pub fn scan_with_config(
     config: Option<&DuplicatesConfig>,
     global_config: &Config,
 ) -> Result<DuplicatesResult> {
+    scan_with_config_internal(root, config, global_config, None)
+}
+
+/// Scan for duplicate files with configuration + TUI progress updates (current file path).
+pub fn scan_with_config_with_progress(
+    root: &Path,
+    config: Option<&DuplicatesConfig>,
+    global_config: &Config,
+    tx: &Sender<ScanProgressEvent>,
+) -> Result<DuplicatesResult> {
+    let reporter = Arc::new(ScanPathReporter::new("Duplicates", tx.clone(), 75));
+    scan_with_config_internal(root, config, global_config, Some(reporter))
+}
+
+fn scan_with_config_internal(
+    root: &Path,
+    config: Option<&DuplicatesConfig>,
+    global_config: &Config,
+    reporter: Option<Arc<ScanPathReporter>>,
+) -> Result<DuplicatesResult> {
     let mut result = DuplicatesResult::default();
 
     // Determine scan roots: use config paths if provided, otherwise use root argument
@@ -201,6 +223,8 @@ pub fn scan_with_config(
             // Use jwalk for parallel directory traversal (2-4x faster than walkdir)
             const MAX_DEPTH: usize = 20;
             let config_clone = Arc::clone(&config_arc);
+
+            let reporter_for_walk = reporter.as_ref().map(Arc::clone);
 
             WalkDir::new(&dir)
                 .max_depth(MAX_DEPTH)
@@ -259,6 +283,9 @@ pub fn scan_with_config(
                 .filter_map(|e| e.ok())
                 .for_each(|entry| {
                     let path = entry.path();
+                    if let Some(ref reporter) = reporter_for_walk {
+                        reporter.emit_path(&path);
+                    }
 
                     // Only process files
                     if !entry.file_type().is_file() {
@@ -299,12 +326,16 @@ pub fn scan_with_config(
         .collect();
 
     // Parallelize partial hash computation
+    let reporter_for_partial = reporter.as_ref().map(Arc::clone);
     let partial_hash_results: Vec<(String, PathBuf)> = paths_to_hash
         .par_iter()
         .flat_map(|(_size, paths)| {
             paths
                 .par_iter()
                 .filter_map(|path| {
+                    if let Some(ref reporter) = reporter_for_partial {
+                        reporter.emit_path(path);
+                    }
                     compute_partial_hash(path, buffer_size)
                         .ok()
                         .map(|hash| (hash, path.clone()))
@@ -334,12 +365,16 @@ pub fn scan_with_config(
     // Parallelize full hash computation
     let memmap_threshold_clone = memmap_threshold;
     let buffer_size_clone = buffer_size;
+    let reporter_for_full = reporter.as_ref().map(Arc::clone);
     let full_hash_results: Vec<(String, PathBuf)> = paths_for_full_hash
         .par_iter()
         .flat_map(|paths| {
             paths
                 .par_iter()
                 .filter_map(|path| {
+                    if let Some(ref reporter) = reporter_for_full {
+                        reporter.emit_path(path);
+                    }
                     compute_full_hash(path, memmap_threshold_clone, buffer_size_clone)
                         .ok()
                         .map(|hash| (hash, path.clone()))

@@ -199,9 +199,9 @@ pub(crate) fn handle_analyze(
             Some(project_age),
             Some(min_age),
             Some(
-                size::parse_size(&min_size).map_err(|e| {
-                    anyhow::anyhow!("Invalid size format '{}': {}", min_size, e)
-                })? / (1024 * 1024),
+                size::parse_size(&min_size)
+                    .map_err(|e| anyhow::anyhow!("Invalid size format '{}': {}", min_size, e))?
+                    / (1024 * 1024),
             ), // Convert bytes to MB for config
         );
 
@@ -218,7 +218,10 @@ pub(crate) fn handle_analyze(
                 Ok(cache) => Some(cache),
                 Err(e) => {
                     if output_mode != OutputMode::Quiet {
-                        eprintln!("Warning: Failed to open scan cache: {}. Continuing without cache.", e);
+                        eprintln!(
+                            "Warning: Failed to open scan cache: {}. Continuing without cache.",
+                            e
+                        );
                     }
                     None
                 }

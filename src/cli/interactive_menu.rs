@@ -2,8 +2,8 @@
 //!
 //! This module owns the CLI interactive menu display.
 
-use crate::theme::Theme;
 use super::Cli;
+use crate::theme::Theme;
 
 impl Cli {
     /// Show interactive menu when no command is provided

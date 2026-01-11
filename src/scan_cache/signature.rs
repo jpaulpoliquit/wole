@@ -22,6 +22,12 @@ impl FileSignature {
     ///
     /// Only computes content hash if explicitly requested (for duplicates, etc.)
     pub fn from_path(path: &Path, compute_hash: bool) -> Result<Self> {
+        // Use safe_metadata on Windows to handle long paths (>260 chars) gracefully
+        #[cfg(windows)]
+        let metadata = crate::utils::safe_metadata(path)
+            .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
+
+        #[cfg(not(windows))]
         let metadata = std::fs::metadata(path)
             .with_context(|| format!("Failed to read metadata: {}", path.display()))?;
 
@@ -79,8 +85,8 @@ impl FileSignature {
         }
 
         // Use buffered reads for smaller files
-        let file = File::open(path)
-            .with_context(|| format!("Failed to open file: {}", path.display()))?;
+        let file =
+            File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
 
         let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
         let mut hasher = Hasher::new();
