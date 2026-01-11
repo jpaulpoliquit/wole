@@ -33,6 +33,107 @@ fn truncate_end(s: &str, max_chars: usize) -> String {
     format!("{}...", s.chars().take(take).collect::<String>())
 }
 
+/// Extract only the "text query" part of the search query for highlighting.
+///
+/// Examples:
+/// - "/type:image dynamics" -> "dynamics"
+/// - "type:.jpg dyn" -> "dyn"
+/// - "dynamics" -> "dynamics"
+fn highlight_text_query(search_query: &str) -> String {
+    let query = search_query.trim();
+    if query.is_empty() {
+        return String::new();
+    }
+
+    // If query uses /type: or type: syntax, highlight only the text portion after the type token.
+    if let Some(type_part) = query
+        .strip_prefix("/type:")
+        .or_else(|| query.strip_prefix("type:"))
+    {
+        let type_part = type_part.trim();
+        if let Some(space_idx) = type_part.find(' ') {
+            return type_part[space_idx..].trim().to_lowercase();
+        }
+        return String::new();
+    }
+
+    // Regular text query.
+    query.to_lowercase()
+}
+
+/// Split `text` into styled spans, highlighting any occurrences of `query_lc` (case-insensitive).
+///
+/// Note: `query_lc` must already be lowercased.
+fn spans_with_highlight(text: &str, query_lc: &str, normal: Style, highlight: Style) -> Vec<Span<'static>> {
+    if text.is_empty() {
+        return vec![Span::styled(String::new(), normal)];
+    }
+    if query_lc.is_empty() {
+        return vec![Span::styled(text.to_string(), normal)];
+    }
+
+    let lower = text.to_lowercase();
+    let qlen_bytes = query_lc.len();
+    if qlen_bytes == 0 {
+        return vec![Span::styled(text.to_string(), normal)];
+    }
+
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut search_from: usize = 0; // byte offset into `lower`
+    let mut consumed_chars: usize = 0; // char offset into `text`
+
+    while search_from <= lower.len() {
+        let Some(rel_pos) = lower[search_from..].find(query_lc) else {
+            break;
+        };
+        let match_start_byte = search_from + rel_pos;
+        let match_end_byte = match_start_byte.saturating_add(qlen_bytes).min(lower.len());
+
+        // Map match byte offsets (in `lower`) into character offsets.
+        let match_start_chars = lower[..match_start_byte].chars().count();
+        let match_end_chars = lower[..match_end_byte].chars().count();
+
+        // Non-matching segment before the match.
+        if match_start_chars > consumed_chars {
+            let seg = text
+                .chars()
+                .skip(consumed_chars)
+                .take(match_start_chars - consumed_chars)
+                .collect::<String>();
+            if !seg.is_empty() {
+                spans.push(Span::styled(seg, normal));
+            }
+        }
+
+        // Matching segment.
+        if match_end_chars > match_start_chars {
+            let seg = text
+                .chars()
+                .skip(match_start_chars)
+                .take(match_end_chars - match_start_chars)
+                .collect::<String>();
+            if !seg.is_empty() {
+                spans.push(Span::styled(seg, highlight));
+            }
+        }
+
+        consumed_chars = match_end_chars;
+        search_from = match_end_byte;
+    }
+
+    // Trailing segment after the last match.
+    let remaining = text.chars().skip(consumed_chars).collect::<String>();
+    if !remaining.is_empty() {
+        spans.push(Span::styled(remaining, normal));
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::styled(text.to_string(), normal));
+    }
+
+    spans
+}
+
 /// Get emoji for a category name
 fn category_emoji(category_name: &str) -> &'static str {
     match category_name {
@@ -488,6 +589,7 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
     } else {
         app_state.filtered_results_rows()
     };
+    let highlight_query = highlight_text_query(&app_state.search_query);
 
     // If rows is empty but we have category groups, something went wrong
     // Try to show items directly as a fallback - show ALL categories
@@ -552,19 +654,29 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         // Add emoji based on file type
                         let file_type = detect_file_type(&item.path);
                         let emoji = file_type.emoji();
-                        lines.push(Line::from(vec![
+                        let base_style = Styles::primary();
+                        let hl_style = base_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+                        let mut spans = vec![
                             Span::styled(indent, Style::default()),
                             Span::styled(checkbox, checkbox_style),
                             Span::styled(" ", Style::default()),
                             Span::styled(format!("{} ", emoji), Styles::secondary()),
-                            Span::styled(display_str, Styles::primary()),
+                        ];
+                        spans.extend(spans_with_highlight(
+                            &display_str,
+                            &highlight_query,
+                            base_style,
+                            hl_style,
+                        ));
+                        spans.extend([
                             Span::styled(format!("  {:>8}", size_str), Styles::secondary()),
                             if let Some(ago) = ago_str {
                                 Span::styled(format!(" | {:>8}", ago), Styles::secondary())
                             } else {
                                 Span::raw("")
                             },
-                        ]));
+                        ]);
+                        lines.push(Line::from(spans));
                     }
                     if app_state.category_groups.len() > 1
                         && group_idx < app_state.category_groups.len() - 1
@@ -742,20 +854,29 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 let max_len = (inner.width as usize).saturating_sub(fixed).max(8);
                 let folder_display = truncate_end(&folder_str, max_len);
 
-                let folder_header = Line::from(vec![
+                let base_folder_style = apply_sel(Styles::emphasis());
+                let hl_folder_style = base_folder_style.add_modifier(Modifier::UNDERLINED);
+                let mut folder_header_spans = vec![
                     Span::styled(format!("{}{} ", indent, prefix), row_style),
                     Span::styled(checkbox, apply_sel(checkbox_style)),
                     Span::styled(" ", row_style),
                     Span::styled(format!("{} ", exp_marker), apply_sel(Styles::secondary())),
                     Span::styled(format!("{} ", folder_emoji_icon), apply_sel(Styles::secondary())),
-                    Span::styled(folder_display, apply_sel(Styles::emphasis())),
+                ];
+                folder_header_spans.extend(spans_with_highlight(
+                    &folder_display,
+                    &highlight_query,
+                    base_folder_style,
+                    hl_folder_style,
+                ));
+                folder_header_spans.extend([
                     Span::styled(format!("  {:>8}", size_str), apply_sel(Styles::primary())),
                     Span::styled(
                         format!("  ({}/{})", selected_in_folder, total_in_folder),
                         apply_sel(Styles::secondary()),
                     ),
                 ]);
-                lines.push(folder_header);
+                lines.push(Line::from(folder_header_spans));
             }
             crate::tui::state::ResultsRow::Item { item_idx, depth } => {
                 let Some(item) = app_state.all_items.get(item_idx) else {
@@ -849,13 +970,21 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                 } else {
                     row_style
                 };
+                let path_hl_style = path_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
 
-                let item_line = Line::from(vec![
+                let mut item_spans = vec![
                     Span::styled(format!("{}{} ", indent, prefix), row_style),
                     Span::styled(checkbox, apply_sel(checkbox_style)),
                     Span::styled(" ", row_style),
                     Span::styled(format!("{} ", emoji), apply_sel(Styles::secondary())),
-                    Span::styled(path_display, path_style),
+                ];
+                item_spans.extend(spans_with_highlight(
+                    &path_display,
+                    &highlight_query,
+                    path_style,
+                    path_hl_style,
+                ));
+                item_spans.extend([
                     Span::styled(format!("  {:>8}", size_str), apply_sel(Styles::secondary())),
                     if let Some(ago) = ago_str {
                         Span::styled(format!(" | {:>8}", ago), apply_sel(Styles::secondary()))
@@ -863,7 +992,7 @@ fn render_grouped_results(f: &mut Frame, area: Rect, app_state: &mut AppState) {
                         Span::raw("")
                     },
                 ]);
-                lines.push(item_line);
+                lines.push(Line::from(item_spans));
             }
             crate::tui::state::ResultsRow::Spacer => {
                 folder_stack.clear();

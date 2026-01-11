@@ -27,7 +27,7 @@ pub(crate) fn handle_scan(
     project_age: u64,
     min_age: u64,
     min_size: String,
-    _exclude: Vec<String>,
+    exclude: Vec<String>,
     output_mode: OutputMode,
 ) -> anyhow::Result<()> {
     // --all enables all categories
@@ -110,6 +110,9 @@ pub(crate) fn handle_scan(
             })? / (1024 * 1024),
         ), // Convert bytes to MB for config
     );
+
+    // Merge CLI exclusions
+    config.exclusions.patterns.extend(exclude.iter().cloned());
 
     // Use config values (after CLI overrides) for scan options
     let min_size_bytes = config.thresholds.min_size_mb * 1024 * 1024;

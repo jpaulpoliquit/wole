@@ -39,6 +39,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }  # For SQLite VACUUM ope
 ureq = { version = "2.9", features = ["native-tls", "json"] }  # HTTP client for update checks
 sysinfo = "0.32"  # Cross-platform system info (CPU, memory, disk, battery, processes)
 battery = { version = "0.7", optional = true }  # Battery information (optional)
+unicode-width = "=0.2.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"            # Windows registry access for installed applications

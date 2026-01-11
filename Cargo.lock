@@ -2663,6 +2663,7 @@ dependencies = [
  "thiserror 1.0.69",
  "toml",
  "trash",
+ "unicode-width 0.2.0",
  "ureq",
  "walkdir",
  "windows 0.58.0",

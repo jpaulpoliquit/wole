@@ -2,6 +2,7 @@ use crate::cli::ScanOptions;
 use crate::theme::Theme;
 use serde::Serialize;
 use std::path::PathBuf;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 // Forward declaration for duplicate groups
 pub use crate::categories::duplicates::DuplicateGroup;
@@ -28,58 +29,59 @@ fn category_emoji(category_name: &str) -> &'static str {
     }
 }
 
-/// Calculate display width of a string (emojis count as 2 characters)
-fn display_width(s: &str) -> usize {
-    s.chars()
-        .map(|c| {
-            // Check if character is likely an emoji or wide character
-            // Most emojis are in ranges: U+1F300-U+1F9FF, U+2600-U+26FF, U+2700-U+27BF, etc.
-            let code = c as u32;
-            if (0x1F300..=0x1F9FF).contains(&code)
-                || (0x2600..=0x26FF).contains(&code)
-                || (0x2700..=0x27BF).contains(&code)
-                || (0x1F600..=0x1F64F).contains(&code)
-                || (0x1F900..=0x1F9FF).contains(&code)
-                || code > 0xFFFF // Most wide characters
-            {
-                2
-            } else {
-                1
-            }
-        })
-        .sum()
-}
-
-/// Pad a string to a specific display width
-fn pad_to_width(s: &str, width: usize) -> String {
-    let current_width = display_width(s);
-    if current_width >= width {
+/// Truncate a string to a maximum display width (adds ellipsis if needed).
+fn truncate_to_width(s: &str, max_width: usize) -> String {
+    if UnicodeWidthStr::width(s) <= max_width {
         return s.to_string();
     }
-    format!("{}{}", s, " ".repeat(width - current_width))
+
+    let ellipsis = "…";
+    let ellipsis_w = UnicodeWidthStr::width(ellipsis);
+    let target = max_width.saturating_sub(ellipsis_w);
+
+    let mut out = String::new();
+    let mut w = 0usize;
+    for ch in s.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if w + cw > target {
+            break;
+        }
+        out.push(ch);
+        w += cw;
+    }
+    out.push_str(ellipsis);
+    out
 }
 
-/// Print a table row with borders
-fn print_table_row(cols: &[(String, usize)], border_left: &str, border_mid: &str, border_right: &str) {
-    let mut row = border_left.to_string();
-    for (i, (content, width)) in cols.iter().enumerate() {
-        if i > 0 {
-            row.push_str(border_mid);
-        }
-        row.push_str(&pad_to_width(content, *width));
+/// Pad/truncate content to a specific display width (Unicode-aware).
+fn pad_right_to_width(s: &str, width: usize) -> String {
+    let truncated = truncate_to_width(s, width);
+    let w = UnicodeWidthStr::width(truncated.as_str());
+    format!("{}{}", truncated, " ".repeat(width.saturating_sub(w)))
+}
+
+/// Print a table row with borders and 1-space cell padding.
+fn print_table_row(cols: &[(String, usize)]) {
+    let mut row = String::from("│");
+    for (content, width) in cols {
+        row.push(' ');
+        row.push_str(&pad_right_to_width(content, *width));
+        row.push(' ');
+        row.push('│');
     }
-    row.push_str(border_right);
     println!("{}", row);
 }
 
-/// Print a horizontal separator line
-fn print_table_separator(widths: &[usize], left: &str, _mid: &str, right: &str, cross: &str) {
+/// Print a horizontal separator line (Unicode box drawing).
+/// Widths are content widths (excluding the 1-space left/right padding).
+fn print_table_separator(widths: &[usize], left: &str, mid: &str, right: &str) {
     let mut sep = left.to_string();
     for (i, width) in widths.iter().enumerate() {
         if i > 0 {
-            sep.push_str(cross);
+            sep.push_str(mid);
         }
-        sep.push_str(&"─".repeat(*width));
+        // +2 for the 1-space padding on each side of the cell
+        sep.push_str(&"─".repeat(width + 2));
     }
     sep.push_str(right);
     println!("{}", sep);
@@ -189,22 +191,18 @@ pub fn print_human_with_options(
     println!();
 
     // Table column widths
-    let col_widths = [25, 10, 12, 22];
+    // (content widths; padding handled by table helpers)
+    let col_widths = [26, 7, 12, 24];
 
     // Print table header with borders
-    print_table_separator(&col_widths, "┌", "┬", "┐", "─");
-    print_table_row(
-        &[
-            (Theme::primary("Category"), col_widths[0]),
-            (Theme::primary("Items"), col_widths[1]),
-            (Theme::primary("Size"), col_widths[2]),
-            (Theme::primary("Status"), col_widths[3]),
-        ],
-        "│",
-        "│",
-        "│",
-    );
-    print_table_separator(&col_widths, "├", "┼", "┤", "─");
+    print_table_separator(&col_widths, "┌", "┬", "┐");
+    print_table_row(&[
+        (Theme::primary("Category"), col_widths[0]),
+        (Theme::primary("Items"), col_widths[1]),
+        (Theme::primary("Size"), col_widths[2]),
+        (Theme::primary("Status"), col_widths[3]),
+    ]);
+    print_table_separator(&col_widths, "├", "┼", "┤");
 
     let categories = [
         ("Package cache", &results.cache, "[OK] Safe to clean"),
@@ -245,17 +243,12 @@ pub fn print_human_with_options(
             };
             let emoji = category_emoji(name);
             let category_display = format!("{} {}", emoji, name);
-            print_table_row(
-                &[
-                    (Theme::category(&category_display), col_widths[0]),
-                    (Theme::value(&result.items.to_string()), col_widths[1]),
-                    (Theme::size(&result.size_human()), col_widths[2]),
-                    (status_colored, col_widths[3]),
-                ],
-                "│",
-                "│",
-                "│",
-            );
+            print_table_row(&[
+                (Theme::category(&category_display), col_widths[0]),
+                (Theme::value(&result.items.to_string()), col_widths[1]),
+                (Theme::size(&result.size_human()), col_widths[2]),
+                (status_colored, col_widths[3]),
+            ]);
 
             // Special handling for duplicates: show groups in verbose mode
             if name == "Duplicates"
@@ -376,30 +369,23 @@ pub fn print_human_with_options(
         + results.windows_update.size_bytes
         + results.event_logs.size_bytes;
 
-    // Print bottom border
-    print_table_separator(&col_widths, "└", "┴", "┘", "─");
-    println!();
-
     if total_items == 0 {
+        print_table_separator(&col_widths, "└", "┴", "┘");
+        println!();
         println!(
             "{}",
             Theme::success("Your system is clean! No reclaimable space found.")
         );
     } else {
-        // Print total row with borders
-        print_table_separator(&col_widths, "├", "┼", "┤", "─");
-        print_table_row(
-            &[
-                (Theme::header("Total"), col_widths[0]),
-                (Theme::value(&total_items.to_string()), col_widths[1]),
-                (Theme::size(&bytesize::to_string(total_bytes, true)), col_widths[2]),
-                (Theme::success("Reclaimable"), col_widths[3]),
-            ],
-            "│",
-            "│",
-            "│",
-        );
-        print_table_separator(&col_widths, "└", "┴", "┘", "─");
+        // Total row inside the same table box
+        print_table_separator(&col_widths, "├", "┼", "┤");
+        print_table_row(&[
+            (Theme::header("Total"), col_widths[0]),
+            (Theme::value(&total_items.to_string()), col_widths[1]),
+            (Theme::size(&bytesize::to_string(total_bytes, true)), col_widths[2]),
+            (Theme::success("Reclaimable"), col_widths[3]),
+        ]);
+        print_table_separator(&col_widths, "└", "┴", "┘");
         println!();
         let clean_command = build_clean_command(options);
         println!(
@@ -759,36 +745,27 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
     categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
 
     // Table column widths
-    let col_widths = [28, 12, 14];
+    // (content widths; padding handled by table helpers)
+    let col_widths = [30, 10, 12];
 
     // Print table header with borders
-    print_table_separator(&col_widths, "┌", "┬", "┐", "─");
-    print_table_row(
-        &[
-            ("Category".to_string(), col_widths[0]),
-            ("Files".to_string(), col_widths[1]),
-            ("Size".to_string(), col_widths[2]),
-        ],
-        "│",
-        "│",
-        "│",
-    );
-    print_table_separator(&col_widths, "├", "┼", "┤", "─");
+    print_table_separator(&col_widths, "┌", "┬", "┐");
+    print_table_row(&[
+        ("Category".to_string(), col_widths[0]),
+        ("Files".to_string(), col_widths[1]),
+        ("Size".to_string(), col_widths[2]),
+    ]);
+    print_table_separator(&col_widths, "├", "┼", "┤");
 
     // Print category rows
     for (name, result) in &categories {
         let emoji = category_emoji(name);
         let category_display = format!("{} {}", emoji, name);
-        print_table_row(
-            &[
-                (category_display, col_widths[0]),
-                (format_number(result.items as u64), col_widths[1]),
-                (result.size_human(), col_widths[2]),
-            ],
-            "│",
-            "│",
-            "│",
-        );
+        print_table_row(&[
+            (category_display, col_widths[0]),
+            (format_number(result.items as u64), col_widths[1]),
+            (result.size_human(), col_widths[2]),
+        ]);
 
         // Special handling for duplicates: show groups in verbose mode
         if *name == "Duplicates" && (mode == OutputMode::Verbose || mode == OutputMode::VeryVerbose)
@@ -903,18 +880,13 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
         + results.event_logs.size_bytes;
 
     // Print separator and total
-    print_table_separator(&col_widths, "├", "┼", "┤", "─");
-    print_table_row(
-        &[
-            ("Total".to_string(), col_widths[0]),
-            (format_number(total_items as u64), col_widths[1]),
-            (bytesize::to_string(total_bytes, true), col_widths[2]),
-        ],
-        "│",
-        "│",
-        "│",
-    );
-    print_table_separator(&col_widths, "└", "┴", "┘", "─");
+    print_table_separator(&col_widths, "├", "┼", "┤");
+    print_table_row(&[
+        ("Total".to_string(), col_widths[0]),
+        (format_number(total_items as u64), col_widths[1]),
+        (bytesize::to_string(total_bytes, true), col_widths[2]),
+    ]);
+    print_table_separator(&col_widths, "└", "┴", "┘");
     println!();
 }
 
