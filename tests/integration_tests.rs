@@ -53,7 +53,7 @@ fn test_scan_build_artifacts_inactive_project() {
 
     let config = Config::default();
     // Use Quiet mode in tests to avoid spinner thread issues
-    let _results = scanner::scan_all(temp_dir.path(), options, OutputMode::Quiet, &config).unwrap();
+    let _results = scanner::scan_all(temp_dir.path(), options, OutputMode::Quiet, &config, None).unwrap();
 
     // Scan completed successfully (may or may not find items depending on git activity)
 }
@@ -100,7 +100,7 @@ fn test_scan_empty_directory() {
 
     let config = Config::default();
     // Use Quiet mode in tests to avoid spinner thread issues
-    let results = scanner::scan_all(temp_dir.path(), options, OutputMode::Quiet, &config).unwrap();
+    let results = scanner::scan_all(temp_dir.path(), options, OutputMode::Quiet, &config, None).unwrap();
 
     // Should return empty results
     assert_eq!(results.cache.items, 0);

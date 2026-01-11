@@ -460,9 +460,10 @@ pub struct AppState {
     pub confirm_groups_cache: Vec<CategoryGroup>, // cached category groups for confirm screen (stable ordering)
     pub search_mode: bool,                        // whether search mode is active
     pub search_query: String,                     // current search query
-    pub dashboard_message: Option<String>,        // temporary message for dashboard (e.g. warnings)
+    pub search_navigated: bool, // true if user navigated while in search mode (space should toggle selection)
+    pub dashboard_message: Option<String>, // temporary message for dashboard (e.g. warnings)
     pub last_scan_categories: Option<std::collections::HashSet<String>>, // categories enabled during last scan (for result reuse)
-    pub first_scan_stats: Option<(usize, u64)>,  // (total_files, total_storage) for first scan summary
+    pub first_scan_stats: Option<(usize, u64)>, // (total_files, total_storage) for first scan summary
 }
 
 /// A single result item for display in the table
@@ -573,6 +574,7 @@ impl AppState {
             confirm_groups_cache: Vec::new(), // Cached category groups for confirm screen
             search_mode: false,
             search_query: String::new(),
+            search_navigated: false,
             dashboard_message: None,
             last_scan_categories: None, // No previous scan initially
             first_scan_stats: None,     // No first scan stats initially
@@ -1526,12 +1528,38 @@ impl AppState {
             } else {
                 (type_part.to_lowercase(), String::new())
             };
-            
+
             // Check if it's an extension (starts with . or is short and looks like extension)
-            let is_extension = type_str.starts_with('.') || 
-                (type_str.len() <= 5 && !type_str.contains(' ') && 
-                 !matches!(type_str.as_str(), "video" | "audio" | "image" | "code" | "text" | "document" | "archive" | "installer" | "database" | "backup" | "font" | "log" | "certificate" | "system" | "build" | "subtitle" | "cad" | "gis" | "vm" | "container" | "webasset" | "game" | "other"));
-            
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
             if is_extension {
                 // Extract extension (remove leading dot if present)
                 let ext = if type_str.starts_with('.') {
@@ -1557,11 +1585,37 @@ impl AppState {
             } else {
                 (type_part.to_lowercase(), String::new())
             };
-            
-            let is_extension = type_str.starts_with('.') || 
-                (type_str.len() <= 5 && !type_str.contains(' ') && 
-                 !matches!(type_str.as_str(), "video" | "audio" | "image" | "code" | "text" | "document" | "archive" | "installer" | "database" | "backup" | "font" | "log" | "certificate" | "system" | "build" | "subtitle" | "cad" | "gis" | "vm" | "container" | "webasset" | "game" | "other"));
-            
+
+            let is_extension = type_str.starts_with('.')
+                || (type_str.len() <= 5
+                    && !type_str.contains(' ')
+                    && !matches!(
+                        type_str.as_str(),
+                        "video"
+                            | "audio"
+                            | "image"
+                            | "code"
+                            | "text"
+                            | "document"
+                            | "archive"
+                            | "installer"
+                            | "database"
+                            | "backup"
+                            | "font"
+                            | "log"
+                            | "certificate"
+                            | "system"
+                            | "build"
+                            | "subtitle"
+                            | "cad"
+                            | "gis"
+                            | "vm"
+                            | "container"
+                            | "webasset"
+                            | "game"
+                            | "other"
+                    ));
+
             if is_extension {
                 let ext = if type_str.starts_with('.') {
                     type_str[1..].to_string()
@@ -1584,7 +1638,7 @@ impl AppState {
     fn match_file_type_string(&self, type_str: &str) -> Option<crate::utils::FileType> {
         use crate::utils::FileType;
         let type_lower = type_str.to_lowercase();
-        
+
         // If it starts with ., definitely treat as extension
         if type_lower.starts_with('.') {
             let ext = &type_lower[1..];
@@ -1596,7 +1650,7 @@ impl AppState {
             }
             return None;
         }
-        
+
         // Try exact match for type names first
         let type_match = match type_lower.as_str() {
             "video" => Some(FileType::Video),
@@ -1628,12 +1682,12 @@ impl AppState {
             "other" => Some(FileType::Other),
             _ => None,
         };
-        
+
         // If type name matched, return it
         if type_match.is_some() {
             return type_match;
         }
-        
+
         // If no type name match and it's a short string (likely an extension), try as extension
         if type_lower.len() <= 4 && !type_lower.contains(' ') {
             let test_path_str = format!("file.{}", type_lower);
@@ -1643,7 +1697,7 @@ impl AppState {
                 return Some(detected_type);
             }
         }
-        
+
         None
     }
 
@@ -1658,7 +1712,7 @@ impl AppState {
         }
 
         let (type_filter, extension_filter, text_query) = self.parse_search_query();
-        
+
         // Clone extension filter for use in closure
         let extension_filter_clone = extension_filter.clone();
 
@@ -1679,7 +1733,7 @@ impl AppState {
                         return false;
                     }
                 }
-                
+
                 // Check type filter (category-based)
                 if let Some(filter_type) = type_filter {
                     let item_type = crate::utils::detect_file_type(&item.path);

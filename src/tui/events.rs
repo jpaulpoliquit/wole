@@ -503,8 +503,9 @@ fn handle_config_event(
     // 6 show_storage_info (bool)
     // 7 scan_depth_user (u8)
     // 8 scan_depth_entire_disk (u8)
-    // 9 clear_cache (action)
-    let fields_len = 10usize;
+    // 9 full_disk_baseline (bool)
+    // 10 clear_cache (action)
+    let fields_len = 11usize;
 
     // Editing mode has its own key handling.
     if let ConfigEditorMode::Editing { ref mut buffer } = app_state.config_editor.mode {
@@ -670,6 +671,16 @@ fn handle_config_event(
                     }
                     app_state.apply_config_to_state();
                 }
+                9 => {
+                    app_state.config.cache.full_disk_baseline =
+                        !app_state.config.cache.full_disk_baseline;
+                    match app_state.config.save() {
+                        Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
+                    }
+                }
                 _ => {}
             }
             EventResult::Continue
@@ -697,6 +708,17 @@ fn handle_config_event(
                         }
                     }
                     app_state.apply_config_to_state();
+                }
+                9 => {
+                    // Toggle bool
+                    app_state.config.cache.full_disk_baseline =
+                        !app_state.config.cache.full_disk_baseline;
+                    match app_state.config.save() {
+                        Ok(()) => app_state.config_editor.message = Some("Saved.".to_string()),
+                        Err(e) => {
+                            app_state.config_editor.message = Some(format!("Save failed: {e}"))
+                        }
+                    }
                 }
                 0 => {
                     app_state.config_editor.mode = ConfigEditorMode::Editing {
@@ -752,21 +774,19 @@ fn handle_config_event(
                     app_state.config_editor.message =
                         Some("Edit value (0-255), then Enter to save (Esc cancels).".to_string());
                 }
-                9 => {
+                10 => {
                     // Clear scan cache
                     match crate::scan_cache::ScanCache::open() {
-                        Ok(mut cache) => {
-                            match cache.invalidate(None) {
-                                Ok(()) => {
-                                    app_state.config_editor.message =
-                                        Some("Scan cache cleared successfully.".to_string());
-                                }
-                                Err(e) => {
-                                    app_state.config_editor.message =
-                                        Some(format!("Failed to clear cache: {}", e));
-                                }
+                        Ok(mut cache) => match cache.clear_all() {
+                            Ok(()) => {
+                                app_state.config_editor.message =
+                                    Some("Scan cache cleared successfully.".to_string());
                             }
-                        }
+                            Err(e) => {
+                                app_state.config_editor.message =
+                                    Some(format!("Failed to clear cache: {}", e));
+                            }
+                        },
                         Err(e) => {
                             app_state.config_editor.message =
                                 Some(format!("Failed to open cache: {}", e));
@@ -893,6 +913,7 @@ fn handle_results_event(
             KeyCode::Esc => {
                 // Exit search mode, keep query active
                 app_state.search_mode = false;
+                app_state.search_navigated = false;
                 app_state.cursor = 0;
                 app_state.scroll_offset = 0;
                 return EventResult::Continue;
@@ -902,30 +923,43 @@ fn handle_results_event(
                 if modifiers.contains(KeyModifiers::CONTROL) {
                     // Exit search mode first so Ctrl+Enter handler can work
                     app_state.search_mode = false;
+                    app_state.search_navigated = false;
                     // Fall through to normal handling below
                 } else {
                     // Regular Enter - confirm search, stay in results with filter active
                     app_state.search_mode = false;
+                    app_state.search_navigated = false;
                     return EventResult::Continue;
                 }
             }
             KeyCode::Backspace => {
                 app_state.search_query.pop();
+                app_state.search_navigated = false; // Reset navigation flag when editing query
                 app_state.cursor = 0;
                 app_state.scroll_offset = 0;
                 return EventResult::Continue;
             }
             KeyCode::Char(c) => {
-                // Only accept printable characters
-                if !c.is_control() {
-                    app_state.search_query.push(c);
-                    app_state.cursor = 0;
-                    app_state.scroll_offset = 0;
+                // If it's a space and we navigated, don't add to query (will toggle selection below)
+                if c == ' ' && app_state.search_navigated {
+                    // Don't add space to query, let it fall through to toggle selection
+                    // Reset the flag so next space adds to query
+                    app_state.search_navigated = false;
+                } else {
+                    // Add character (including space) to query
+                    if !c.is_control() {
+                        app_state.search_query.push(c);
+                        app_state.search_navigated = false; // Reset navigation flag when typing
+                        app_state.cursor = 0;
+                        app_state.scroll_offset = 0;
+                    }
+                    return EventResult::Continue;
                 }
-                return EventResult::Continue;
             }
             // Allow navigation while searching - will fall through to normal handling
             KeyCode::Up | KeyCode::Down => {
+                // Mark that we navigated so space can toggle selection
+                app_state.search_navigated = true;
                 // Fall through to normal navigation handling
             }
             _ => return EventResult::Continue,
@@ -1021,8 +1055,9 @@ fn handle_results_event(
     match key {
         KeyCode::Char('q') | KeyCode::Char('Q') => EventResult::Quit,
         KeyCode::Char('/') => {
-            // Enter search mode
+            // Enter search mode (or re-enter if query exists)
             app_state.search_mode = true;
+            app_state.search_navigated = false; // Reset navigation flag when entering search mode
             EventResult::Continue
         }
         KeyCode::Esc => {
