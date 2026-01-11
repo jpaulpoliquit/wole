@@ -84,11 +84,16 @@ fn try_incremental_scan(
         }
     }
 
-    // Update cache with unchanged files
+    // Update cache with unchanged files (batch for efficiency)
+    let mut cache_updates = Vec::new();
     for path in &unchanged_paths {
         if let Ok(sig) = FileSignature::from_path(path, false) {
-            let _ = cache.upsert_file(&sig, category_name, scan_id);
+            cache_updates.push((sig, category_name.to_string()));
         }
+    }
+    if !cache_updates.is_empty() {
+        // Ignore cache update errors - scan can continue without cache
+        let _ = cache.upsert_files_batch(&cache_updates, scan_id);
     }
 
     // If there are changed/new files, we'd need to scan them
@@ -643,7 +648,7 @@ pub fn scan_all_with_progress(
 
     filter_exclusions(&mut results, config);
 
-    // Finish scan session if cache is enabled
+    // Finish scan session if cache is enabled (non-fatal if it fails)
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_id) = cache.current_scan_id() {
             let mut stats = ScanStats::default();
@@ -663,9 +668,10 @@ pub fn scan_all_with_progress(
                 + results.windows_update.items
                 + results.event_logs.items;
             
-            let removed = cache.cleanup_stale(scan_id)?;
+            // Cleanup and finish are non-fatal - scan already completed
+            let removed = cache.cleanup_stale(scan_id).unwrap_or(0);
             stats.removed_files = removed;
-            cache.finish_scan(scan_id, stats)?;
+            let _ = cache.finish_scan(scan_id, stats);
         }
     }
 

@@ -26,20 +26,57 @@ impl ScanCache {
             .with_context(|| format!("Failed to create cache directory: {}", cache_dir.display()))?;
 
         let db_path = cache_dir.join("scan_cache.db");
-        let db = Connection::open(&db_path)
+        
+        // Enable WAL mode for better concurrency and performance
+        let mut db = Connection::open(&db_path)
             .with_context(|| format!("Failed to open database: {}", db_path.display()))?;
+        
+        // Enable WAL mode (Write-Ahead Logging) for better concurrency
+        // This allows multiple readers while one writer is active
+        db.pragma_update(None, "journal_mode", "WAL")
+            .with_context(|| "Failed to enable WAL mode")?;
+        
+        // Set busy timeout to handle concurrent access gracefully
+        db.busy_timeout(std::time::Duration::from_secs(30))
+            .with_context(|| "Failed to set busy timeout")?;
 
-        let cache = Self {
+        let mut cache = Self {
             db,
             current_scan_id: None,
         };
 
-        cache.init_schema()?;
+        // Initialize schema - if it fails due to corruption, try to recover
+        if let Err(e) = cache.init_schema() {
+            // If schema init fails, try to backup and recreate
+            eprintln!("Warning: Failed to initialize cache schema: {}. Attempting recovery...", e);
+            
+            // Try to backup corrupted database
+            let backup_path = db_path.with_extension("db.backup");
+            let _ = std::fs::copy(&db_path, &backup_path);
+            
+            // Remove corrupted database and try again
+            let _ = std::fs::remove_file(&db_path);
+            
+            // Retry opening
+            let db = Connection::open(&db_path)
+                .with_context(|| format!("Failed to recreate database: {}", db_path.display()))?;
+            db.pragma_update(None, "journal_mode", "WAL")?;
+            db.busy_timeout(std::time::Duration::from_secs(30))?;
+            
+            let mut cache = Self {
+                db,
+                current_scan_id: None,
+            };
+            cache.init_schema()
+                .with_context(|| "Failed to initialize schema after recovery")?;
+            return Ok(cache);
+        }
+        
         Ok(cache)
     }
 
     /// Initialize database schema
-    fn init_schema(&self) -> Result<()> {
+    fn init_schema(&mut self) -> Result<()> {
         // Check if schema_version table exists
         let version: i32 = self
             .db
@@ -66,10 +103,14 @@ impl ScanCache {
     }
 
     /// Migrate schema to current version
-    fn migrate_schema(&self, from_version: i32) -> Result<()> {
+    fn migrate_schema(&mut self, from_version: i32) -> Result<()> {
+        // Use transaction to ensure atomic migration
+        let tx = self.db.transaction()
+            .with_context(|| "Failed to start migration transaction")?;
+
         if from_version == 0 {
             // Initial schema
-            self.db.execute(
+            tx.execute(
                 "CREATE TABLE IF NOT EXISTS file_records (
                     path TEXT PRIMARY KEY,
                     size INTEGER NOT NULL,
@@ -82,9 +123,10 @@ impl ScanCache {
                     updated_at INTEGER NOT NULL
                 )",
                 [],
-            )?;
+            )
+            .with_context(|| "Failed to create file_records table")?;
 
-            self.db.execute(
+            tx.execute(
                 "CREATE TABLE IF NOT EXISTS scan_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     started_at INTEGER NOT NULL,
@@ -97,25 +139,34 @@ impl ScanCache {
                     removed_files INTEGER
                 )",
                 [],
-            )?;
+            )
+            .with_context(|| "Failed to create scan_sessions table")?;
 
             // Create indexes
-            self.db.execute(
+            tx.execute(
                 "CREATE INDEX IF NOT EXISTS idx_category ON file_records(category)",
                 [],
-            )?;
-            self.db.execute(
+            )
+            .with_context(|| "Failed to create category index")?;
+            tx.execute(
                 "CREATE INDEX IF NOT EXISTS idx_scan_id ON file_records(last_scan_id)",
                 [],
-            )?;
-            self.db.execute(
+            )
+            .with_context(|| "Failed to create scan_id index")?;
+            tx.execute(
                 "CREATE INDEX IF NOT EXISTS idx_size ON file_records(size)",
                 [],
-            )?;
+            )
+            .with_context(|| "Failed to create size index")?;
 
             // Update schema version
-            self.db.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])?;
+            tx.execute("UPDATE schema_version SET version = ?1", [SCHEMA_VERSION])
+                .with_context(|| "Failed to update schema version")?;
         }
+
+        // Commit migration transaction
+        tx.commit()
+            .with_context(|| "Failed to commit migration transaction")?;
 
         Ok(())
     }
@@ -137,7 +188,7 @@ impl ScanCache {
 
     /// Check if a file needs rescanning
     pub fn check_file(&self, path: &Path) -> Result<FileStatus> {
-        let path_str = path.to_string_lossy().to_string();
+        let path_str = normalize_path(path);
 
         let result: Option<(u64, i64, i64)> = self.db.query_row(
             "SELECT size, mtime_secs, mtime_nsecs FROM file_records WHERE path = ?1",
@@ -178,8 +229,8 @@ impl ScanCache {
             return Ok(result);
         }
 
-        // Get all cached records for these paths
-        let path_strs: Vec<String> = paths.iter().map(|p| p.to_string_lossy().to_string()).collect();
+        // Get all cached records for these paths (normalize for consistent lookup)
+        let path_strs: Vec<String> = paths.iter().map(|p| normalize_path(p)).collect();
         let placeholders = path_strs.iter().map(|_| "?").collect::<Vec<_>>().join(",");
 
         let mut stmt = self.db.prepare(&format!(
@@ -207,7 +258,7 @@ impl ScanCache {
 
         // Check each file
         for path in paths {
-            let path_str = path.to_string_lossy().to_string();
+            let path_str = normalize_path(&path);
 
             if let Some((cached_size, mtime_secs, mtime_nsecs)) = cached.get(&path_str) {
                 // File is in cache, check if it changed
@@ -250,9 +301,17 @@ impl ScanCache {
 
     /// Update/insert file record after scanning
     pub fn upsert_file(&mut self, sig: &FileSignature, category: &str, scan_id: i64) -> Result<()> {
-        let path_str = sig.path.to_string_lossy().to_string();
+        let path_str = normalize_path(&sig.path);
         let (mtime_secs, mtime_nsecs) = system_time_to_secs_nsecs(sig.mtime);
         let now = Utc::now().timestamp();
+
+        // Handle potential integer overflow for very large files (>9PB)
+        // SQLite INTEGER can store up to 8 bytes, so i64::MAX is safe
+        let size_i64 = if sig.size > i64::MAX as u64 {
+            i64::MAX // Cap at max value
+        } else {
+            sig.size as i64
+        };
 
         self.db.execute(
             "INSERT INTO file_records (path, size, mtime_secs, mtime_nsecs, content_hash, category, last_scan_id, created_at, updated_at)
@@ -267,7 +326,7 @@ impl ScanCache {
                 updated_at = ?9",
             params![
                 path_str,
-                sig.size as i64,
+                size_i64,
                 mtime_secs,
                 mtime_nsecs,
                 sig.content_hash,
@@ -287,14 +346,26 @@ impl ScanCache {
         records: &[(FileSignature, String)],
         scan_id: i64,
     ) -> Result<()> {
-        let tx = self.db.transaction()?;
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        let tx = self.db.transaction()
+            .with_context(|| "Failed to start transaction")?;
 
         for (sig, category) in records {
-            let path_str = sig.path.to_string_lossy().to_string();
+            let path_str = normalize_path(&sig.path);
             let (mtime_secs, mtime_nsecs) = system_time_to_secs_nsecs(sig.mtime);
             let now = Utc::now().timestamp();
 
-            tx.execute(
+            // Handle potential integer overflow for very large files
+            let size_i64 = if sig.size > i64::MAX as u64 {
+                i64::MAX
+            } else {
+                sig.size as i64
+            };
+
+            if let Err(e) = tx.execute(
                 "INSERT INTO file_records (path, size, mtime_secs, mtime_nsecs, content_hash, category, last_scan_id, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(path) DO UPDATE SET
@@ -307,7 +378,7 @@ impl ScanCache {
                     updated_at = ?9",
                 params![
                     path_str,
-                    sig.size as i64,
+                    size_i64,
                     mtime_secs,
                     mtime_nsecs,
                     sig.content_hash,
@@ -316,10 +387,14 @@ impl ScanCache {
                     now,
                     now
                 ],
-            )?;
+            ) {
+                // Transaction will be rolled back automatically on drop
+                return Err(anyhow::anyhow!("Failed to upsert file record: {}", e));
+            }
         }
 
-        tx.commit()?;
+        tx.commit()
+            .with_context(|| "Failed to commit transaction")?;
         Ok(())
     }
 
@@ -328,12 +403,15 @@ impl ScanCache {
         let mut stmt = self.db.prepare(
             "SELECT path FROM file_records WHERE category = ?1 AND last_scan_id = ?2",
         )?;
-
-        let paths: Vec<PathBuf> = stmt
-            .query_map([category, &previous_scan_id.to_string()], |row| {
-                Ok(PathBuf::from(row.get::<_, String>(0)?))
-            })?
-            .collect::<Result<_, _>>()?;
+        
+        let mut paths = Vec::new();
+        let mut rows = stmt.query_map(params![category, previous_scan_id], |row| {
+            Ok(PathBuf::from(row.get::<_, String>(0)?))
+        })?;
+        
+        for row in rows {
+            paths.push(row?);
+        }
 
         Ok(paths)
     }
@@ -342,11 +420,12 @@ impl ScanCache {
     pub fn cleanup_stale(&mut self, current_scan_id: i64) -> Result<usize> {
         // Get all paths that weren't updated in current scan (they might be deleted)
         // We only check paths from the most recent previous scan to avoid checking everything
-        let mut stmt = self.db.prepare(
-            "SELECT MAX(id) FROM scan_sessions WHERE id < ?1",
-        )?;
-        
-        let previous_scan_id: Option<i64> = stmt.query_row([current_scan_id], |row| row.get(0)).ok();
+        let previous_scan_id: Option<i64> = {
+            let mut stmt = self.db.prepare(
+                "SELECT MAX(id) FROM scan_sessions WHERE id < ?1",
+            )?;
+            stmt.query_row([current_scan_id], |row| row.get(0)).ok()
+        };
         
         if previous_scan_id.is_none() {
             return Ok(0); // No previous scan
@@ -355,23 +434,55 @@ impl ScanCache {
         let prev_id = previous_scan_id.unwrap();
         
         // Get paths from previous scan that weren't updated in current scan
-        let mut stmt = self.db.prepare(
-            "SELECT path FROM file_records WHERE last_scan_id = ?1",
-        )?;
+        let paths: Vec<String> = {
+            let mut stmt = self.db.prepare(
+                "SELECT path FROM file_records WHERE last_scan_id = ?1",
+            )?;
+            
+            let mut paths = Vec::new();
+            let rows = stmt.query_map([prev_id], |row| Ok(row.get::<_, String>(0)?))?;
+            
+            for row in rows {
+                paths.push(row?);
+            }
+            paths
+        };
 
-        let paths: Vec<String> = stmt
-            .query_map([prev_id], |row| Ok(row.get::<_, String>(0)?))?
-            .collect::<Result<_, _>>()?;
+        if paths.is_empty() {
+            return Ok(0);
+        }
 
-        let mut deleted_count = 0;
-
+        // Check which paths are deleted (outside transaction for efficiency)
+        let mut deleted_paths = Vec::new();
         for path_str in paths {
             let path = PathBuf::from(&path_str);
+            // Use exists() check - if file doesn't exist, mark for deletion
             if !path.exists() {
-                self.db.execute("DELETE FROM file_records WHERE path = ?1", [&path_str])?;
-                deleted_count += 1;
+                deleted_paths.push(path_str);
             }
         }
+
+        if deleted_paths.is_empty() {
+            return Ok(0);
+        }
+
+        // Batch deletions in a transaction for efficiency
+        let tx = self.db.transaction()
+            .with_context(|| "Failed to start cleanup transaction")?;
+        
+        // Batch delete in transaction
+        let mut delete_stmt = tx.prepare("DELETE FROM file_records WHERE path = ?1")?;
+        for path_str in &deleted_paths {
+            if let Err(e) = delete_stmt.execute([path_str]) {
+                // Transaction will rollback on drop
+                return Err(anyhow::anyhow!("Failed to delete stale record: {}", e));
+            }
+        }
+        drop(delete_stmt);
+
+        let deleted_count = deleted_paths.len();
+        tx.commit()
+            .with_context(|| "Failed to commit cleanup transaction")?;
 
         Ok(deleted_count)
     }
@@ -500,6 +611,20 @@ fn get_cache_dir() -> Result<PathBuf> {
     Ok(base_dir.join("wole").join("cache"))
 }
 
+/// Normalize path for consistent storage and lookup
+/// On Windows, converts to lowercase for case-insensitive matching
+/// On Unix, preserves case
+fn normalize_path(path: &Path) -> String {
+    #[cfg(windows)]
+    {
+        path.to_string_lossy().to_lowercase().replace('\\', "/")
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_string_lossy().replace('\\', "/")
+    }
+}
+
 /// Convert SystemTime to (seconds, nanoseconds) tuple
 fn system_time_to_secs_nsecs(time: SystemTime) -> (i64, i64) {
     match time.duration_since(UNIX_EPOCH) {
@@ -508,7 +633,7 @@ fn system_time_to_secs_nsecs(time: SystemTime) -> (i64, i64) {
             let nsecs = duration.subsec_nanos() as i64;
             (secs, nsecs)
         }
-        Err(_) => (0, 0), // Shouldn't happen for mtime
+        Err(_) => (0, 0), // Shouldn't happen for mtime, but handle gracefully
     }
 }
 
