@@ -345,11 +345,18 @@ impl ScanCache {
         let metadata = match std::fs::metadata(path) {
             Ok(m) => m,
             Err(err) => {
-                return if err.kind() == io::ErrorKind::NotFound {
-                    Ok(FileStatus::Deleted)
+                if err.kind() == io::ErrorKind::NotFound {
+                    // File doesn't exist at original location - check if it's in recycle bin
+                    // If it's in recycle bin, it was cleaned (mark as InRecycleBin)
+                    // If not in recycle bin, it's truly deleted
+                    if is_in_recycle_bin(path) {
+                        return Ok(FileStatus::InRecycleBin);
+                    } else {
+                        return Ok(FileStatus::Deleted);
+                    }
                 } else {
-                    Ok(FileStatus::Modified)
-                };
+                    return Ok(FileStatus::Modified);
+                }
             }
         };
 
@@ -442,7 +449,13 @@ impl ScanCache {
                     }
                     Err(err) => {
                         if err.kind() == io::ErrorKind::NotFound {
-                            result.insert(path.clone(), FileStatus::Deleted);
+                            // File doesn't exist at original location - check recycle bin
+                            // If in recycle bin, mark as InRecycleBin; if not, mark as Deleted
+                            if is_in_recycle_bin(path) {
+                                result.insert(path.clone(), FileStatus::InRecycleBin);
+                            } else {
+                                result.insert(path.clone(), FileStatus::Deleted);
+                            }
                         } else {
                             result.insert(path.clone(), FileStatus::Modified);
                         }
@@ -456,7 +469,13 @@ impl ScanCache {
                     }
                     Err(err) => {
                         if err.kind() == io::ErrorKind::NotFound {
-                            result.insert(path.clone(), FileStatus::Deleted);
+                            // File not in cache and doesn't exist - check recycle bin
+                            // If in recycle bin, mark as InRecycleBin; if not, mark as Deleted
+                            if is_in_recycle_bin(path) {
+                                result.insert(path.clone(), FileStatus::InRecycleBin);
+                            } else {
+                                result.insert(path.clone(), FileStatus::Deleted);
+                            }
                         } else {
                             result.insert(path.clone(), FileStatus::Modified);
                         }
@@ -687,14 +706,28 @@ impl ScanCache {
                 }
 
                 // Check which paths are deleted
+                // Files that are in the recycle bin should be excluded from scan results
+                // but kept in cache (they were cleaned, not truly deleted)
+                // Files that are not in recycle bin and don't exist should be removed from cache
                 let mut deleted_paths = Vec::new();
                 for path_str in paths {
                     let path = decode_path(&path_str);
                     match std::fs::metadata(&path) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                            // File exists at original location - keep it
+                        }
                         Err(err) => {
                             if err.kind() == io::ErrorKind::NotFound {
-                                deleted_paths.push(path_str);
+                                // File doesn't exist - check if it's in recycle bin
+                                if is_in_recycle_bin(&path) {
+                                    // File is in recycle bin - it was cleaned, so exclude from results
+                                    // but don't remove from cache yet (user might restore it)
+                                    // We'll mark it as deleted in the category but keep the record
+                                    deleted_paths.push(path_str);
+                                } else {
+                                    // File is truly deleted (not in recycle bin) - remove from cache
+                                    deleted_paths.push(path_str);
+                                }
                             }
                         }
                     }
@@ -1051,6 +1084,63 @@ fn clamp_size_to_i64(size: u64) -> i64 {
     } else {
         size as i64
     }
+}
+
+/// Check if a file path is in the recycle bin
+/// Returns true if the file exists in the recycle bin, false otherwise
+fn is_in_recycle_bin(path: &Path) -> bool {
+    // Only check recycle bin on Windows (where trash_ops::list works)
+    #[cfg(windows)]
+    {
+        use crate::restore::normalize_path_for_comparison;
+
+        // Try to get recycle bin contents (non-fatal if it fails)
+        if let Ok(recycle_bin_items) = crate::trash_ops::list() {
+            let path_str = path.display().to_string();
+            let normalized_path = normalize_path_for_comparison(&path_str);
+
+            // Check if any recycle bin item matches this path
+            for item in recycle_bin_items {
+                let original_path = item.original_parent.join(&item.name);
+                let normalized_original =
+                    normalize_path_for_comparison(&original_path.display().to_string());
+
+                // Exact match
+                if normalized_original == normalized_path {
+                    return true;
+                }
+
+                // Check if path is inside a deleted directory
+                // Windows Recycle Bin stores individual files when directories are deleted
+                let normalized_original_with_sep = if normalized_original.ends_with('/') {
+                    normalized_original.clone()
+                } else {
+                    format!("{}/", normalized_original)
+                };
+
+                if normalized_path.starts_with(&normalized_original_with_sep) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        // On non-Windows, check using trash crate if available
+        if let Ok(recycle_bin_items) = crate::trash_ops::list() {
+            let path_str = path.display().to_string();
+
+            for item in recycle_bin_items {
+                let original_path = item.original_parent.join(&item.name);
+                if original_path == path {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]

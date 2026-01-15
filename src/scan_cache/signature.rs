@@ -139,7 +139,9 @@ pub enum FileStatus {
     Unchanged,
     /// File modified (size or mtime changed)
     Modified,
-    /// File deleted (was in cache but no longer exists)
+    /// File is in recycle bin (was cleaned, but still recoverable)
+    InRecycleBin,
+    /// File deleted (was in cache but no longer exists and not in recycle bin)
     Deleted,
 }
 

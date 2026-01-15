@@ -15,6 +15,63 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 
+/// Check if a file path is in the recycle bin
+/// Returns true if the file exists in the recycle bin, false otherwise
+fn is_in_recycle_bin(path: &Path) -> bool {
+    // Only check recycle bin on Windows (where trash_ops::list works)
+    #[cfg(windows)]
+    {
+        use crate::restore::normalize_path_for_comparison;
+
+        // Try to get recycle bin contents (non-fatal if it fails)
+        if let Ok(recycle_bin_items) = crate::trash_ops::list() {
+            let path_str = path.display().to_string();
+            let normalized_path = normalize_path_for_comparison(&path_str);
+
+            // Check if any recycle bin item matches this path
+            for item in recycle_bin_items {
+                let original_path = item.original_parent.join(&item.name);
+                let normalized_original =
+                    normalize_path_for_comparison(&original_path.display().to_string());
+
+                // Exact match
+                if normalized_original == normalized_path {
+                    return true;
+                }
+
+                // Check if path is inside a deleted directory
+                // Windows Recycle Bin stores individual files when directories are deleted
+                let normalized_original_with_sep = if normalized_original.ends_with('/') {
+                    normalized_original.clone()
+                } else {
+                    format!("{}/", normalized_original)
+                };
+
+                if normalized_path.starts_with(&normalized_original_with_sep) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        // On non-Windows, check using trash crate if available
+        if let Ok(recycle_bin_items) = crate::trash_ops::list() {
+            let path_str = path.display().to_string();
+
+            for item in recycle_bin_items {
+                let original_path = item.original_parent.join(&item.name);
+                if original_path == path {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 /// Try incremental scan for a category
 /// Returns Ok(Some(result)) if cache was used, Ok(None) if full scan needed, Err on error
 fn try_incremental_scan(
@@ -53,8 +110,12 @@ fn try_incremental_scan(
             crate::scan_cache::FileStatus::Modified | crate::scan_cache::FileStatus::New => {
                 changed_paths.push(path);
             }
+            crate::scan_cache::FileStatus::InRecycleBin => {
+                // File is in recycle bin (was cleaned) - exclude from scan results
+                // but keep in cache for tracking
+            }
             crate::scan_cache::FileStatus::Deleted => {
-                // File deleted, skip it
+                // File truly deleted (not in recycle bin) - will be cleaned up from cache
             }
         }
     }
@@ -445,6 +506,10 @@ pub fn scan_all(
     // This can be removed entirely once we verify all scanners properly handle exclusions.
     filter_exclusions(&mut results, config);
 
+    // Filter out files that are in the recycle bin (they were cleaned)
+    // This ensures cleaned files don't appear in scan results
+    filter_recycle_bin_files(&mut results);
+
     // Save scanned files to cache and finish scan session if cache is enabled (non-fatal if it fails)
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
@@ -456,8 +521,16 @@ pub fn scan_all(
             > = std::collections::HashMap::new();
 
             // Helper to add paths from a category result
+            // Exclude files that are in the recycle bin from cache (they were cleaned)
+            // Exception: trash category - those files ARE in recycle bin, so include them
             let mut add_category_paths = |paths: &[PathBuf], category: &str| {
                 for path in paths {
+                    // Skip files that are in the recycle bin (they were cleaned)
+                    // UNLESS this is the trash category (which scans recycle bin itself)
+                    if category != "trash" && is_in_recycle_bin(path) {
+                        continue;
+                    }
+
                     if let Ok(sig) = FileSignature::from_path(path, false) {
                         category_batches
                             .entry(category.to_string())
@@ -1178,6 +1251,10 @@ pub fn scan_all_with_progress(
 
     filter_exclusions(&mut results, config);
 
+    // Filter out files that are in the recycle bin (they were cleaned)
+    // This ensures cleaned files don't appear in scan results
+    filter_recycle_bin_files(&mut results);
+
     // Save scanned files to cache and finish scan session if cache is enabled (non-fatal if it fails)
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
@@ -1189,8 +1266,16 @@ pub fn scan_all_with_progress(
             > = std::collections::HashMap::new();
 
             // Helper to add paths from a category result
+            // Exclude files that are in the recycle bin from cache (they were cleaned)
+            // Exception: trash category - those files ARE in recycle bin, so include them
             let mut add_category_paths = |paths: &[PathBuf], category: &str| {
                 for path in paths {
+                    // Skip files that are in the recycle bin (they were cleaned)
+                    // UNLESS this is the trash category (which scans recycle bin itself)
+                    if category != "trash" && is_in_recycle_bin(path) {
+                        continue;
+                    }
+
                     if let Ok(sig) = FileSignature::from_path(path, false) {
                         category_batches
                             .entry(category.to_string())
@@ -1276,6 +1361,107 @@ enum ScanTask {
     Applications,
     WindowsUpdate,
     EventLogs,
+}
+
+/// Filter out files that are in the recycle bin from scan results
+/// Files in recycle bin were already cleaned, so exclude them from results
+/// but keep them tracked in cache (they can be restored)
+/// Note: This does NOT filter the trash category itself - that's a separate scan
+fn filter_recycle_bin_files(results: &mut ScanResults) {
+    // Helper to filter paths and recalculate size_bytes efficiently
+    let filter_and_recalculate = |paths: &mut Vec<PathBuf>, size_bytes: &mut u64| {
+        let original_count = paths.len();
+        let mut excluded_size = 0u64;
+
+        // Filter out paths that are in the recycle bin
+        paths.retain(|path| {
+            let in_recycle_bin = is_in_recycle_bin(path);
+            if in_recycle_bin {
+                // Calculate size of excluded path before removing
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    if metadata.is_file() {
+                        excluded_size += metadata.len();
+                    } else if metadata.is_dir() {
+                        excluded_size += utils::calculate_dir_size(path);
+                    }
+                }
+            }
+            !in_recycle_bin
+        });
+
+        // Subtract excluded sizes instead of recalculating everything
+        if excluded_size > 0 {
+            *size_bytes = size_bytes.saturating_sub(excluded_size);
+        }
+
+        // If we filtered out many paths, the size estimate might be off
+        // Only recalculate if we filtered out a significant portion (>10%)
+        if original_count > 0 && (original_count - paths.len()) * 100 / original_count > 10 {
+            // Recalculate for accuracy when many paths were excluded
+            let mut total = 0u64;
+            for path in paths.iter() {
+                if let Ok(metadata) = std::fs::metadata(path) {
+                    if metadata.is_file() {
+                        total += metadata.len();
+                    } else if metadata.is_dir() {
+                        total += utils::calculate_dir_size(path);
+                    }
+                }
+            }
+            *size_bytes = total;
+        }
+    };
+
+    // Filter all categories EXCEPT trash (trash category scans the recycle bin itself)
+    filter_and_recalculate(&mut results.cache.paths, &mut results.cache.size_bytes);
+    filter_and_recalculate(
+        &mut results.app_cache.paths,
+        &mut results.app_cache.size_bytes,
+    );
+    filter_and_recalculate(&mut results.temp.paths, &mut results.temp.size_bytes);
+    filter_and_recalculate(&mut results.build.paths, &mut results.build.size_bytes);
+    filter_and_recalculate(
+        &mut results.downloads.paths,
+        &mut results.downloads.size_bytes,
+    );
+    filter_and_recalculate(&mut results.large.paths, &mut results.large.size_bytes);
+    filter_and_recalculate(&mut results.old.paths, &mut results.old.size_bytes);
+    filter_and_recalculate(&mut results.browser.paths, &mut results.browser.size_bytes);
+    filter_and_recalculate(&mut results.system.paths, &mut results.system.size_bytes);
+    filter_and_recalculate(&mut results.empty.paths, &mut results.empty.size_bytes);
+    filter_and_recalculate(
+        &mut results.duplicates.paths,
+        &mut results.duplicates.size_bytes,
+    );
+    filter_and_recalculate(
+        &mut results.applications.paths,
+        &mut results.applications.size_bytes,
+    );
+    filter_and_recalculate(
+        &mut results.windows_update.paths,
+        &mut results.windows_update.size_bytes,
+    );
+    filter_and_recalculate(
+        &mut results.event_logs.paths,
+        &mut results.event_logs.size_bytes,
+    );
+    // NOTE: Do NOT filter results.trash - that category scans the recycle bin itself
+
+    // Update item counts
+    results.cache.items = results.cache.paths.len();
+    results.app_cache.items = results.app_cache.paths.len();
+    results.temp.items = results.temp.paths.len();
+    results.build.items = results.build.paths.len();
+    results.downloads.items = results.downloads.paths.len();
+    results.large.items = results.large.paths.len();
+    results.old.items = results.old.paths.len();
+    results.browser.items = results.browser.paths.len();
+    results.system.items = results.system.paths.len();
+    results.empty.items = results.empty.paths.len();
+    results.duplicates.items = results.duplicates.paths.len();
+    results.applications.items = results.applications.paths.len();
+    results.windows_update.items = results.windows_update.paths.len();
+    results.event_logs.items = results.event_logs.paths.len();
 }
 
 /// Filter out paths matching exclusion patterns
