@@ -15,12 +15,17 @@ thread_local! {
 
 #[cfg(windows)]
 use std::sync::RwLock;
+#[cfg(windows)]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
     static ref DISK_BREAKDOWN_CACHE: RwLock<Option<(DiskBreakdown, std::time::Instant)>> =
         RwLock::new(None);
 }
+
+#[cfg(windows)]
+static DISK_BREAKDOWN_REFRESH_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug)]
 struct MetricsState {
@@ -228,6 +233,21 @@ pub struct SystemStatus {
     pub boot_info: Option<BootInfo>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct StatusGatherOptions {
+    pub include_wmi: bool,
+}
+
+impl StatusGatherOptions {
+    pub fn full() -> Self {
+        Self { include_wmi: true }
+    }
+
+    pub fn fast() -> Self {
+        Self { include_wmi: false }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareInfo {
     pub device_name: String,
@@ -421,6 +441,17 @@ pub fn gather_status_async(sender: std::sync::mpsc::Sender<Result<SystemStatus>>
 }
 
 pub fn gather_status(system: &mut System) -> Result<SystemStatus> {
+    gather_status_with_options(system, StatusGatherOptions::full())
+}
+
+pub fn gather_status_fast(system: &mut System) -> Result<SystemStatus> {
+    gather_status_with_options(system, StatusGatherOptions::fast())
+}
+
+pub fn gather_status_with_options(
+    system: &mut System,
+    options: StatusGatherOptions,
+) -> Result<SystemStatus> {
     // Use thread-local state for delta tracking
     METRICS_STATE.with(|state_cell| {
         let mut state = state_cell.borrow_mut();
@@ -475,31 +506,32 @@ pub fn gather_status(system: &mut System) -> Result<SystemStatus> {
 
         // Gather top processes (show 10 instead of 5)
         #[cfg(windows)]
-        let (handle_counts, page_faults) = {
-            let handles = gather_process_handle_counts();
-            let faults = gather_process_page_faults();
-            (handles, faults)
+        let (processes, top_io_processes, boot_info) = if options.include_wmi {
+            let handle_counts = gather_process_handle_counts();
+            let page_faults = gather_process_page_faults();
+            let processes =
+                gather_top_processes_with_wmi(system, 10, &handle_counts, &page_faults);
+            let top_io_processes = gather_process_io_metrics();
+            let boot_info = gather_boot_info();
+            (processes, top_io_processes, boot_info)
+        } else {
+            let processes = gather_top_processes_basic(system, 10);
+            (processes, Vec::new(), None)
         };
 
-        #[cfg(windows)]
-        let processes = gather_top_processes_with_wmi(system, 10, &handle_counts, &page_faults);
         #[cfg(not(windows))]
-        let processes = gather_top_processes(system, 10);
-
-        // Gather top I/O processes via WMI
-        #[cfg(windows)]
-        let top_io_processes = gather_process_io_metrics();
-        #[cfg(not(windows))]
-        let top_io_processes = Vec::new();
+        let processes = gather_top_processes_basic(system, 10);
 
         // Gather disk breakdown (cached, expensive operation)
         // Only use cached data to avoid blocking - don't scan on first load
         #[cfg(windows)]
-        let disk_breakdown = gather_disk_breakdown_cached_only();
-
-        // Gather boot info
-        #[cfg(windows)]
-        let boot_info = gather_boot_info();
+        let disk_breakdown = {
+            let disk_breakdown = gather_disk_breakdown_cached_only();
+            if disk_breakdown.is_none() {
+                ensure_disk_breakdown_refresh();
+            }
+            disk_breakdown
+        };
 
         // Calculate health score
         let health_score = calculate_health_score(&cpu, &memory, &disk, &power);
@@ -2060,9 +2092,8 @@ fn gather_top_processes_with_wmi(
     processes.into_iter().take(limit).collect()
 }
 
-#[cfg(not(windows))]
-#[allow(dead_code)] // Used on non-Windows platforms via conditional compilation
-fn gather_top_processes(system: &System, limit: usize) -> Vec<ProcessInfo> {
+#[allow(dead_code)]
+fn gather_top_processes_basic(system: &System, limit: usize) -> Vec<ProcessInfo> {
     let mut processes: Vec<ProcessInfo> = system
         .processes()
         .iter()
@@ -2288,6 +2319,17 @@ pub fn refresh_disk_breakdown_async() {
     std::thread::spawn(|| {
         let _ = gather_disk_breakdown();
     });
+}
+
+#[cfg(windows)]
+pub fn ensure_disk_breakdown_refresh() {
+    if gather_disk_breakdown_cached_only().is_some() {
+        return;
+    }
+
+    if !DISK_BREAKDOWN_REFRESH_TRIGGERED.swap(true, Ordering::Relaxed) {
+        refresh_disk_breakdown_async();
+    }
 }
 
 #[cfg(windows)]

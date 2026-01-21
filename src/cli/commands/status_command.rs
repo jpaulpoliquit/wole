@@ -21,14 +21,14 @@ pub(crate) fn handle_status(json: bool, _watch: bool) -> anyhow::Result<()> {
     } else {
         // Launch interactive TUI for real-time status dashboard
         // Ignore watch flag - TUI always auto-refreshes
-        use crate::status::gather_status;
+        use crate::status::gather_status_fast;
         use sysinfo::System;
 
         // Don't call refresh_all() - gather_status will refresh what it needs
         // This avoids blocking on expensive full system refresh
         let mut system = System::new();
 
-        match gather_status(&mut system) {
+        match gather_status_fast(&mut system) {
             Ok(status) => {
                 let mut app_state = crate::tui::state::AppState::new();
                 app_state.screen = crate::tui::state::Screen::Status {
