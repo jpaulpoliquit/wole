@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use sysinfo::System;
+use unicode_width::UnicodeWidthStr;
 
 // Thread-local state for tracking metrics over time (for delta calculations)
 thread_local! {
@@ -2354,7 +2355,11 @@ fn gather_disk_breakdown() -> Option<DiskBreakdown> {
     // Get total disk space for C:\
     let total_disk_bytes = match get_disk_space_ex("C:\\") {
         Ok((total, _, _)) => total,
-        Err(_) => return None,
+        Err(_) => {
+            // Clear the refresh trigger flag on failure so retry can happen
+            DISK_BREAKDOWN_REFRESH_TRIGGERED.store(false, Ordering::Relaxed);
+            return None;
+        }
     };
     let total_disk_gb = (total_disk_bytes as f64) / (1024.0 * 1024.0 * 1024.0);
 
@@ -2429,6 +2434,9 @@ fn gather_disk_breakdown() -> Option<DiskBreakdown> {
     if let Ok(mut cache) = DISK_BREAKDOWN_CACHE.write() {
         *cache = Some((breakdown.clone(), Instant::now()));
     }
+
+    // Clear the refresh trigger flag so future refreshes can be triggered after cache expiry
+    DISK_BREAKDOWN_REFRESH_TRIGGERED.store(false, Ordering::Relaxed);
 
     Some(breakdown)
 }
@@ -2871,4 +2879,845 @@ fn create_speed_bar(value: f64, width: usize) -> String {
     let filled = (value.clamp(0.0, 1.0) * width as f64).round() as usize;
     let empty = width.saturating_sub(filled);
     format!("{}{}", "▮".repeat(filled), "▯".repeat(empty))
+}
+
+/// Format status for new experimental CLI output with cleaner layout
+pub fn format_cli_output_new(status: &SystemStatus) -> String {
+    let mut output = String::new();
+
+    // Header
+    let health_indicator = match status.health_score {
+        80..=100 => "●",
+        60..=79 => "○",
+        40..=59 => "◐",
+        _ => "◯",
+    };
+
+    output.push_str(&format!(
+        "WOLE Status  Health {} {}  {} · {} · {:.1}GB · {}\n\n",
+        health_indicator,
+        status.health_score,
+        status.hardware.device_name,
+        status.hardware.cpu_model,
+        status.hardware.total_memory_gb,
+        status.hardware.os_name
+    ));
+
+    // Row 1: CPU (left) | Memory (right)
+    let cpu_section = format_cpu_section_new(status);
+    let memory_section = format_memory_section_new(status);
+    output.push_str(&format_two_columns(&cpu_section, &memory_section, 48));
+    output.push_str("\n");
+
+    // Row 2: Disk (left) | Power (right)
+    let disk_section = format_disk_section_new(status);
+    let power_section = format_power_section_new(status);
+    output.push_str(&format_two_columns(&disk_section, &power_section, 48));
+    output.push_str("\n");
+
+    // Row 3: Network (left) | Boot (right)
+    let network_section = format_network_section_new(status);
+    let boot_section = format_boot_section_new(status);
+    output.push_str(&format_two_columns(&network_section, &boot_section, 48));
+    output.push_str("\n");
+
+    // Row 4: Processes (full width)
+    let processes_section = format_processes_section_new(status);
+    output.push_str(&format_single_column(&processes_section));
+
+    output
+}
+
+const MAIN_LABEL_WIDTH: usize = 6;
+const MAIN_BAR_WIDTH: usize = 20;
+const MAIN_VALUE_WIDTH: usize = 20;
+const CORE_BAR_WIDTH: usize = 6;
+const CORE_CELL_WIDTH: usize = 16;
+const CORE_GAP: usize = 3;
+const PROC_NAME_WIDTH: usize = 16;
+const PROC_CPU_BAR_WIDTH: usize = 5;
+const PROC_CPU_PERCENT_WIDTH: usize = 7; // "100.0%" = 6 chars, +1 for safety
+const PROC_CPU_COL_WIDTH: usize = PROC_CPU_BAR_WIDTH + 1 + PROC_CPU_PERCENT_WIDTH; // bar + space + percent
+const PROC_MEM_WIDTH: usize = 10;
+const PROC_HANDLES_WIDTH: usize = 9;
+const PROC_PGFAULTS_WIDTH: usize = 8;
+
+fn format_cpu_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("⚡ CPU".to_string());
+
+    // Total CPU usage - compact format aligned with cores
+    let total_bar = create_colored_bar(status.cpu.total_usage / 100.0, MAIN_BAR_WIDTH);
+    let total_bar_padded = pad_bar_to_visible(&total_bar, MAIN_BAR_WIDTH);
+    let total_value = format!("{:>5.1}%", status.cpu.total_usage);
+    lines.push(format!("Total  {}  {}", total_bar_padded, total_value));
+
+    // CPU cores in 2-column layout with compact spacing
+    let cores_per_col = (status.cpu.cores.len() + 1) / 2;
+    for i in 0..cores_per_col {
+        let mut line = String::new();
+        // Left column core - fixed width format
+        if let Some(core) = status.cpu.cores.get(i) {
+            let cell = format_core_cell(core);
+            line.push_str(&pad_to_visible(&cell, CORE_CELL_WIDTH));
+        } else {
+            line.push_str(&" ".repeat(CORE_CELL_WIDTH));
+        }
+        // Right column core
+        if let Some(core) = status.cpu.cores.get(i + cores_per_col) {
+            line.push_str(&" ".repeat(CORE_GAP));
+            let cell = format_core_cell(core);
+            line.push_str(&pad_to_visible(&cell, CORE_CELL_WIDTH));
+        }
+        lines.push(line);
+    }
+
+    // Load averages (Unix only)
+    if !cfg!(windows) {
+        lines.push(format!(
+            "Load    {:.2} / {:.2} / {:.2} ({} cores)",
+            status.cpu.load_avg_1min,
+            status.cpu.load_avg_5min,
+            status.cpu.load_avg_15min,
+            status.cpu.cores.len()
+        ));
+    }
+
+    lines
+}
+
+fn format_memory_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("💾 Memory".to_string());
+
+    // Used - consistent format with bar and percentage
+    let used_bar = create_colored_bar(status.memory.used_percent / 100.0, MAIN_BAR_WIDTH);
+    let used_value = format!("{:.1}%", status.memory.used_percent);
+    lines.push(format_bar_value_line(
+        "Used",
+        MAIN_LABEL_WIDTH,
+        Some(used_bar),
+        MAIN_BAR_WIDTH,
+        &used_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    // Free - consistent format (no bar, just value)
+    let free_value = format!("{:.1} GB", status.memory.free_gb);
+    lines.push(format_bar_value_line(
+        "Free",
+        MAIN_LABEL_WIDTH,
+        None,
+        MAIN_BAR_WIDTH,
+        &free_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    // Swap - consistent format with bar
+    let swap_bar = create_colored_bar(status.memory.swap_percent / 100.0, MAIN_BAR_WIDTH);
+    let swap_value = format!(
+        "{:.1}% {:.1}/{:.1}G",
+        status.memory.swap_percent,
+        status.memory.swap_used_gb,
+        status.memory.swap_total_gb
+    );
+    lines.push(format_bar_value_line(
+        "Swap",
+        MAIN_LABEL_WIDTH,
+        Some(swap_bar),
+        MAIN_BAR_WIDTH,
+        &swap_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    // Total - consistent format (no bar, just value)
+    let total_value = format!("{:.1} / {:.1} GB", status.memory.used_gb, status.memory.total_gb);
+    lines.push(format_bar_value_line(
+        "Total",
+        MAIN_LABEL_WIDTH,
+        None,
+        MAIN_BAR_WIDTH,
+        &total_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    lines
+}
+
+fn format_disk_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("💿 Disk".to_string());
+
+    // Used - consistent format with bar and percentage
+    let used_bar = create_colored_bar(status.disk.used_percent / 100.0, MAIN_BAR_WIDTH);
+    let used_value = format!("{:.1}%", status.disk.used_percent);
+    lines.push(format_bar_value_line(
+        "Used",
+        MAIN_LABEL_WIDTH,
+        Some(used_bar),
+        MAIN_BAR_WIDTH,
+        &used_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    // Free - consistent format (no bar, just value)
+    let free_value = format!("{:.1} / {:.1} GB", status.disk.free_gb, status.disk.total_gb);
+    lines.push(format_bar_value_line(
+        "Free",
+        MAIN_LABEL_WIDTH,
+        None,
+        MAIN_BAR_WIDTH,
+        &free_value,
+        MAIN_VALUE_WIDTH,
+    ));
+
+    // Read/Write speeds - consistent format
+    if status.disk.read_speed_mb < 1.0 {
+        let kbps = status.disk.read_speed_mb * 1000.0;
+        let read_bar =
+            create_colored_bar((status.disk.read_speed_mb / 100.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let read_value = format!("{:.1} Kbps", kbps);
+        lines.push(format_bar_value_line(
+            "Read",
+            MAIN_LABEL_WIDTH,
+            Some(read_bar),
+            MAIN_BAR_WIDTH,
+            &read_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    } else {
+        let read_bar =
+            create_colored_bar((status.disk.read_speed_mb / 100.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let read_value = format!("{:.1} MB/s", status.disk.read_speed_mb);
+        lines.push(format_bar_value_line(
+            "Read",
+            MAIN_LABEL_WIDTH,
+            Some(read_bar),
+            MAIN_BAR_WIDTH,
+            &read_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    if status.disk.write_speed_mb < 1.0 {
+        let kbps = status.disk.write_speed_mb * 1000.0;
+        let write_bar =
+            create_colored_bar((status.disk.write_speed_mb / 100.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let write_value = format!("{:.1} Kbps", kbps);
+        lines.push(format_bar_value_line(
+            "Write",
+            MAIN_LABEL_WIDTH,
+            Some(write_bar),
+            MAIN_BAR_WIDTH,
+            &write_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    } else {
+        let write_bar =
+            create_colored_bar((status.disk.write_speed_mb / 100.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let write_value = format!("{:.1} MB/s", status.disk.write_speed_mb);
+        lines.push(format_bar_value_line(
+            "Write",
+            MAIN_LABEL_WIDTH,
+            Some(write_bar),
+            MAIN_BAR_WIDTH,
+            &write_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    // Volumes (Windows disks)
+    if !status.disks.is_empty() {
+        lines.push("Volumes:".to_string());
+        for disk in &status.disks {
+            let disk_type = if disk.is_removable { "[EXT]" } else { "[SSD]" };
+            lines.push(format!(
+                "{} {}  {:.1}/{:.1} GB ({:.0}%)",
+                disk_type,
+                disk.mount_point,
+                disk.used_gb,
+                disk.total_gb,
+                disk.used_percent
+            ));
+        }
+    }
+
+    lines
+}
+
+fn format_power_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("🔋 Power".to_string());
+
+    if let Some(power) = &status.power {
+        // Level (inverted colors - green when high) - consistent format
+        let level_bar = create_colored_bar_inverted(power.level_percent / 100.0, MAIN_BAR_WIDTH);
+        let level_value = format!("{:.1}%", power.level_percent);
+        lines.push(format_bar_value_line(
+            "Level",
+            MAIN_LABEL_WIDTH,
+            Some(level_bar),
+            MAIN_BAR_WIDTH,
+            &level_value,
+            MAIN_VALUE_WIDTH,
+        ));
+
+        // Status - consistent format
+        lines.push(format_bar_value_line(
+            "Status",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &power.status,
+            MAIN_VALUE_WIDTH,
+        ));
+
+        // Health - consistent format
+        let mut health_value = power.health.clone();
+        if let Some(cycles) = power.cycles {
+            health_value.push_str(&format!(" · {} cycles", cycles));
+        }
+        lines.push(format_bar_value_line(
+            "Health",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &health_value,
+            MAIN_VALUE_WIDTH,
+        ));
+
+        // Power/Voltage - consistent format
+        if let Some(watts) = power.energy_rate_watts {
+            let mut power_value = format!("{:.1} W", watts);
+            if let Some(volts) = power.voltage_volts {
+                power_value.push_str(&format!(" · {:.2} V", volts));
+            }
+            lines.push(format_bar_value_line(
+                "Power",
+                MAIN_LABEL_WIDTH,
+                None,
+                MAIN_BAR_WIDTH,
+                &power_value,
+                MAIN_VALUE_WIDTH,
+            ));
+        } else if let Some(volts) = power.voltage_volts {
+            let volts_value = format!("{:.2} V", volts);
+            lines.push(format_bar_value_line(
+                "Volt",
+                MAIN_LABEL_WIDTH,
+                None,
+                MAIN_BAR_WIDTH,
+                &volts_value,
+                MAIN_VALUE_WIDTH,
+            ));
+        }
+    } else {
+        lines.push(format_bar_value_line(
+            "Level",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            "N/A",
+            MAIN_VALUE_WIDTH,
+        ));
+        lines.push(format_bar_value_line(
+            "Status",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            "Plugged In",
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    lines
+}
+
+fn format_network_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("⇅ Network".to_string());
+
+    // Download - consistent format
+    if status.network.download_mb < 1.0 {
+        let kbps = status.network.download_mb * 1000.0;
+        let down_bar =
+            create_colored_bar((status.network.download_mb / 10.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let down_value = format!("{:.2} Kbps", kbps);
+        lines.push(format_bar_value_line(
+            "Down",
+            MAIN_LABEL_WIDTH,
+            Some(down_bar),
+            MAIN_BAR_WIDTH,
+            &down_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    } else {
+        let down_bar =
+            create_colored_bar((status.network.download_mb / 10.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let down_value = format!("{:.2} MB/s", status.network.download_mb);
+        lines.push(format_bar_value_line(
+            "Down",
+            MAIN_LABEL_WIDTH,
+            Some(down_bar),
+            MAIN_BAR_WIDTH,
+            &down_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    // Upload - consistent format
+    if status.network.upload_mb < 1.0 {
+        let kbps = status.network.upload_mb * 1000.0;
+        let up_bar =
+            create_colored_bar((status.network.upload_mb / 10.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let up_value = format!("{:.2} Kbps", kbps);
+        lines.push(format_bar_value_line(
+            "Up",
+            MAIN_LABEL_WIDTH,
+            Some(up_bar),
+            MAIN_BAR_WIDTH,
+            &up_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    } else {
+        let up_bar =
+            create_colored_bar((status.network.upload_mb / 10.0).min(1.0) as f32, MAIN_BAR_WIDTH);
+        let up_value = format!("{:.2} MB/s", status.network.upload_mb);
+        lines.push(format_bar_value_line(
+            "Up",
+            MAIN_LABEL_WIDTH,
+            Some(up_bar),
+            MAIN_BAR_WIDTH,
+            &up_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    // Network interface info - consistent format
+    if let Some(iface) = status.network_interfaces.first() {
+        let mut status_text = String::new();
+        if let Some(conn_type) = &iface.connection_type {
+            status_text.push_str(conn_type);
+        } else if iface.is_up {
+            status_text.push_str("Connected");
+        } else {
+            status_text.push_str("Disconnected");
+        }
+        if let Some(conn_type) = &iface.connection_type {
+            if conn_type.to_lowercase().contains("wifi") || conn_type.to_lowercase().contains("wireless") {
+                status_text.push_str(" · WiFi");
+            } else if conn_type.to_lowercase().contains("ethernet") || conn_type.to_lowercase().contains("lan") {
+                status_text.push_str(" · Ethernet");
+            }
+        }
+        lines.push(format_bar_value_line(
+            "Status",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &status_text,
+            MAIN_VALUE_WIDTH,
+        ));
+
+        // IPv4 address - consistent format
+        if let Some(ipv4) = iface.ip_addresses.iter().find(|ip| !ip.contains(':')) {
+            lines.push(format_bar_value_line(
+                "IPv4",
+                MAIN_LABEL_WIDTH,
+                None,
+                MAIN_BAR_WIDTH,
+                ipv4,
+                MAIN_VALUE_WIDTH,
+            ));
+        }
+
+        // MAC address - consistent format
+        if let Some(mac) = &iface.mac_address {
+            lines.push(format_bar_value_line(
+                "MAC",
+                MAIN_LABEL_WIDTH,
+                None,
+                MAIN_BAR_WIDTH,
+                mac,
+                MAIN_VALUE_WIDTH,
+            ));
+        }
+    }
+
+    lines
+}
+
+fn format_boot_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - naturally left-aligned, no padding
+    lines.push("🔄 Boot".to_string());
+
+    #[cfg(windows)]
+    if let Some(boot_info) = &status.boot_info {
+        // Uptime - consistent format
+        let uptime_str = format_uptime(boot_info.uptime_seconds);
+        lines.push(format_bar_value_line(
+            "Uptime",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &uptime_str,
+            MAIN_VALUE_WIDTH,
+        ));
+
+        // Last Boot Time - consistent format (compact, relative time first)
+        let boot_time_str = boot_info.last_boot_time.format("%H:%M");
+        let now = chrono::Local::now();
+        let days_ago = now.signed_duration_since(boot_info.last_boot_time).num_days();
+        let ago_str = if days_ago == 0 {
+            "today".to_string()
+        } else if days_ago == 1 {
+            "yesterday".to_string()
+        } else {
+            format!("{}d ago", days_ago)
+        };
+        let boot_value = format!("{} {}", ago_str, boot_time_str);
+        lines.push(format_bar_value_line(
+            "Last Boot",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &boot_value,
+            MAIN_VALUE_WIDTH,
+        ));
+    } else {
+        // Fallback to hardware uptime if boot_info not available
+        let uptime_str = format_uptime(status.hardware.uptime_seconds);
+        lines.push(format_bar_value_line(
+            "Uptime",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &uptime_str,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    #[cfg(not(windows))]
+    {
+        // On non-Windows, use hardware uptime
+        let uptime_str = format_uptime(status.hardware.uptime_seconds);
+        lines.push(format_bar_value_line(
+            "Uptime",
+            MAIN_LABEL_WIDTH,
+            None,
+            MAIN_BAR_WIDTH,
+            &uptime_str,
+            MAIN_VALUE_WIDTH,
+        ));
+    }
+
+    lines
+}
+
+fn format_uptime(seconds: u64) -> String {
+    let days = seconds / 86400;
+    let hours = (seconds % 86400) / 3600;
+    let minutes = (seconds % 3600) / 60;
+
+    if days > 0 {
+        format!("{}d {}h {}m", days, hours, minutes)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
+    }
+}
+
+fn format_processes_section_new(status: &SystemStatus) -> Vec<String> {
+    let mut lines = vec![];
+    // Title - no special alignment needed for full-width section
+    lines.push("▶ Top Processes".to_string());
+
+    // Header with fixed column widths - match actual column widths
+    #[cfg(windows)]
+    {
+        let header = format!(
+            "{:<proc_width$}  {:<cpu_width$}  {:<mem_width$}  {:<handles_width$}  {:<pf_width$}",
+            "Process",
+            "CPU %",
+            "Memory",
+            "Handles",
+            "PgFaults",
+            proc_width = PROC_NAME_WIDTH,
+            cpu_width = PROC_CPU_COL_WIDTH,
+            mem_width = PROC_MEM_WIDTH,
+            handles_width = PROC_HANDLES_WIDTH,
+            pf_width = PROC_PGFAULTS_WIDTH
+        );
+        lines.push(header);
+    }
+    #[cfg(not(windows))]
+    {
+        let header = format!(
+            "{:<proc_width$}  {:<cpu_width$}  {:<mem_width$}",
+            "Process",
+            "CPU %",
+            "Memory",
+            proc_width = PROC_NAME_WIDTH,
+            cpu_width = PROC_CPU_COL_WIDTH,
+            mem_width = PROC_MEM_WIDTH
+        );
+        lines.push(header);
+    }
+
+    // Process rows with fixed column widths
+    for proc in status.processes.iter().take(10) {
+        let mut line = String::new();
+
+        // Process name (fixed width: 15 chars)
+        let proc_name = if proc.name.len() > 15 {
+            format!("{}...", &proc.name[..12])
+        } else {
+            proc.name.clone()
+        };
+        line.push_str(&format!("{:<width$}  ", proc_name, width = PROC_NAME_WIDTH));
+
+        // CPU % with mini bar - bar left, percentage right-aligned
+        let cpu_bar = create_colored_bar(proc.cpu_usage.min(100.0) / 100.0, PROC_CPU_BAR_WIDTH);
+        let cpu_bar_padded = pad_bar_to_visible(&cpu_bar, PROC_CPU_BAR_WIDTH);
+        let cpu_percent = format!("{:>width$.1}%", proc.cpu_usage, width = PROC_CPU_PERCENT_WIDTH - 1); // -1 for %
+        let cpu_cell = format!("{} {}", cpu_bar_padded, cpu_percent);
+        let cpu_cell_padded = pad_to_visible(&cpu_cell, PROC_CPU_COL_WIDTH);
+        line.push_str(&cpu_cell_padded);
+        line.push_str("  ");
+
+        // Memory (fixed width: 10 chars, right-aligned)
+        let memory_str = if proc.memory_mb >= 1024.0 {
+            format!("{:.1} GB", proc.memory_mb / 1024.0)
+        } else {
+            format!("{:.0} MB", proc.memory_mb)
+        };
+        line.push_str(&format!("{:>width$}  ", memory_str, width = PROC_MEM_WIDTH));
+
+        #[cfg(windows)]
+        {
+            // Handles (fixed width: 9 chars, right-aligned)
+            if let Some(handles) = proc.handle_count {
+                let handle_str = if handles > 1000 {
+                    format!("{}{}", handles, "△")
+                } else {
+                    handles.to_string()
+                };
+                line.push_str(&format!("{:>width$}  ", handle_str, width = PROC_HANDLES_WIDTH));
+            } else {
+                line.push_str(&format!("{:>width$}  ", "-", width = PROC_HANDLES_WIDTH));
+            }
+
+            // Page Faults (fixed width: 8 chars, right-aligned, account for △)
+            if let Some(pf) = proc.page_faults_per_sec {
+                let pf_str = if pf > 0 {
+                    format!("{}{}", pf, "△")
+                } else {
+                    "0".to_string()
+                };
+                line.push_str(&format!("{:>width$}", pf_str, width = PROC_PGFAULTS_WIDTH));
+            } else {
+                line.push_str(&format!("{:>width$}", "0", width = PROC_PGFAULTS_WIDTH));
+            }
+        }
+
+        lines.push(line);
+    }
+
+    lines
+}
+
+fn format_core_cell(core: &CoreMetrics) -> String {
+    let label = format!("C{:>2}", core.id + 1);
+    let bar = create_colored_bar(core.usage / 100.0, CORE_BAR_WIDTH);
+    let bar_padded = pad_bar_to_visible(&bar, CORE_BAR_WIDTH);
+    let value = format!("{:>4.0}%", core.usage);
+    format!("{} {} {}", label, bar_padded, value)
+}
+
+fn format_bar_value_line(
+    label: &str,
+    label_width: usize,
+    bar: Option<String>,
+    bar_width: usize,
+    value: &str,
+    value_width: usize,
+) -> String {
+    let label_str = format!("{:<width$}", label, width = label_width);
+    let bar_str = if let Some(b) = bar {
+        pad_bar_to_visible(&b, bar_width)
+    } else {
+        " ".repeat(bar_width)
+    };
+    let value_trimmed = truncate_to_visible(value, value_width);
+    let value_str = format!("{:>width$}", value_trimmed, width = value_width);
+    format!("{} {} {}", label_str, bar_str, value_str)
+}
+
+fn format_two_columns(left: &[String], right: &[String], col_width: usize) -> String {
+    const COLUMN_GAP: usize = 4;
+    let max_lines = left.len().max(right.len());
+    let mut output = String::new();
+
+    for i in 0..max_lines {
+        let left_line = left.get(i).map(|s| s.as_str()).unwrap_or("");
+        let right_line = right.get(i).map(|s| s.as_str()).unwrap_or("");
+
+        // Calculate visible width using Unicode width
+        let left_visible_width = visible_width(left_line);
+        
+        // ALWAYS pad left column to col_width - no exceptions
+        let padded_left = if left_visible_width < col_width {
+            let padding = col_width - left_visible_width;
+            format!("{}{}", left_line, " ".repeat(padding))
+        } else {
+            // Truncate if too long
+            truncate_to_visible(left_line, col_width)
+        };
+
+        output.push_str(&padded_left);
+        output.push_str(&" ".repeat(COLUMN_GAP));
+        output.push_str(right_line);
+        output.push('\n');
+    }
+
+    output
+}
+
+fn format_single_column(lines: &[String]) -> String {
+    let mut output = String::new();
+    for line in lines {
+        output.push_str(line);
+        output.push('\n');
+    }
+    output
+}
+
+fn pad_to_visible(s: &str, width: usize) -> String {
+    let visible_len = visible_width(s);
+    if visible_len >= width {
+        s.to_string()
+    } else {
+        format!("{}{}", s, " ".repeat(width - visible_len))
+    }
+}
+
+fn pad_bar_to_visible(bar: &str, width: usize) -> String {
+    let visible_len = visible_width(bar);
+    if visible_len >= width {
+        // Truncate if too long (shouldn't happen, but be safe)
+        truncate_to_visible(bar, width)
+    } else {
+        // Pad with spaces (no ANSI codes in padding)
+        format!("{}{}", bar, " ".repeat(width - visible_len))
+    }
+}
+
+fn truncate_to_visible(s: &str, width: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    
+    let mut result = String::new();
+    let mut visible_count = 0usize;
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            result.push(ch);
+            if chars.peek() == Some(&'[') {
+                if let Some(next) = chars.next() {
+                    result.push(next);
+                }
+                while let Some(c) = chars.next() {
+                    result.push(c);
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+
+        let char_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if visible_count + char_width > width {
+            break;
+        }
+        result.push(ch);
+        visible_count += char_width;
+    }
+
+    result
+}
+
+fn strip_ansi_codes(s: &str) -> String {
+    // Remove ANSI escape sequences (simplified version)
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            // Skip ANSI escape sequence
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                // Skip until we find 'm' or end
+                while let Some(c) = chars.next() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    result
+}
+
+/// Calculate the visible display width of a string, accounting for ANSI codes and Unicode width
+fn visible_width(s: &str) -> usize {
+    UnicodeWidthStr::width(strip_ansi_codes(s).as_str())
+}
+
+fn create_colored_bar(value: f32, width: usize) -> String {
+    let clamped = value.clamp(0.0, 1.0);
+    let filled = (clamped * width as f32).round() as usize;
+    let empty = width.saturating_sub(filled);
+
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+
+    // Color based on threshold
+    let color_code = if clamped <= 0.6 {
+        "\x1b[32m" // Green
+    } else if clamped <= 0.8 {
+        "\x1b[33m" // Yellow
+    } else {
+        "\x1b[31m" // Red
+    };
+    let reset = "\x1b[0m";
+
+    format!("{}{}{}", color_code, bar, reset)
+}
+
+fn create_colored_bar_inverted(value: f32, width: usize) -> String {
+    let clamped = value.clamp(0.0, 1.0);
+    let filled = (clamped * width as f32).round() as usize;
+    let empty = width.saturating_sub(filled);
+
+    let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+
+    // Inverted colors - green when high, red when low
+    let color_code = if clamped >= 0.5 {
+        "\x1b[32m" // Green
+    } else {
+        "\x1b[31m" // Red
+    };
+    let reset = "\x1b[0m";
+
+    format!("{}{}{}", color_code, bar, reset)
 }
