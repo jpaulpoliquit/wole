@@ -3085,7 +3085,7 @@ fn format_disk_section_new(status: &SystemStatus) -> Vec<String> {
             (status.disk.read_speed_mb / 100.0).min(1.0) as f32,
             MAIN_BAR_WIDTH,
         );
-        let read_value = format!("{:.1} Kbps", kbps);
+        let read_value = format!("{:.1} KB/s", kbps);
         lines.push(format_bar_value_line(
             "Read",
             MAIN_LABEL_WIDTH,
@@ -3116,7 +3116,7 @@ fn format_disk_section_new(status: &SystemStatus) -> Vec<String> {
             (status.disk.write_speed_mb / 100.0).min(1.0) as f32,
             MAIN_BAR_WIDTH,
         );
-        let write_value = format!("{:.1} Kbps", kbps);
+        let write_value = format!("{:.1} KB/s", kbps);
         lines.push(format_bar_value_line(
             "Write",
             MAIN_LABEL_WIDTH,
@@ -3257,7 +3257,7 @@ fn format_network_section_new(status: &SystemStatus) -> Vec<String> {
             (status.network.download_mb / 10.0).min(1.0) as f32,
             MAIN_BAR_WIDTH,
         );
-        let down_value = format!("{:.2} Kbps", kbps);
+        let down_value = format!("{:.2} KB/s", kbps);
         lines.push(format_bar_value_line(
             "Down",
             MAIN_LABEL_WIDTH,
@@ -3289,7 +3289,7 @@ fn format_network_section_new(status: &SystemStatus) -> Vec<String> {
             (status.network.upload_mb / 10.0).min(1.0) as f32,
             MAIN_BAR_WIDTH,
         );
-        let up_value = format!("{:.2} Kbps", kbps);
+        let up_value = format!("{:.2} KB/s", kbps);
         lines.push(format_bar_value_line(
             "Up",
             MAIN_LABEL_WIDTH,
@@ -3325,13 +3325,10 @@ fn format_network_section_new(status: &SystemStatus) -> Vec<String> {
             status_text.push_str("Disconnected");
         }
         if let Some(conn_type) = &iface.connection_type {
-            if conn_type.to_lowercase().contains("wifi")
-                || conn_type.to_lowercase().contains("wireless")
-            {
+            let conn_type_lower = conn_type.to_lowercase();
+            if conn_type_lower.contains("wireless") && !conn_type_lower.contains("wifi") {
                 status_text.push_str(" · WiFi");
-            } else if conn_type.to_lowercase().contains("ethernet")
-                || conn_type.to_lowercase().contains("lan")
-            {
+            } else if conn_type_lower.contains("lan") && !conn_type_lower.contains("ethernet") {
                 status_text.push_str(" · Ethernet");
             }
         }
