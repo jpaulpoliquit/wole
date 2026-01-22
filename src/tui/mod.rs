@@ -1358,7 +1358,13 @@ fn perform_cleanup(
                 Ok(cleaner::DeleteOutcome::SkippedPermission) => {
                     errors += 1;
                     let category_lower = category.to_lowercase();
-                    history.log_failure(&path, size_bytes, &category_lower, permanent, "Permission denied");
+                    history.log_failure(
+                        &path,
+                        size_bytes,
+                        &category_lower,
+                        permanent,
+                        "Permission denied",
+                    );
                 }
                 Err(e) => {
                     errors += 1;
