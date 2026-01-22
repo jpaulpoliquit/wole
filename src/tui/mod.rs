@@ -1377,11 +1377,13 @@ fn perform_cleanup(
                 categories::windows_update::clean(&clean_path)
             });
 
+            // Log + counters (always treat as permanent in history to avoid restore offering).
+            let log_as_permanent = true;
             match clean_result {
                 Ok(()) => {
                     cleaned += 1;
                     cleaned_bytes += size_bytes;
-                    history.log_success(&path, size_bytes, "windows_update", permanent);
+                    history.log_success(&path, size_bytes, "windows_update", log_as_permanent);
                 }
                 Err(e) => {
                     errors += 1;
@@ -1389,7 +1391,7 @@ fn perform_cleanup(
                         &path,
                         size_bytes,
                         "windows_update",
-                        permanent,
+                        log_as_permanent,
                         &e.to_string(),
                     );
                 }
@@ -1423,11 +1425,13 @@ fn perform_cleanup(
                 categories::event_logs::clean(&clean_path)
             });
 
+            // Log + counters (always treat as permanent in history to avoid restore offering).
+            let log_as_permanent = true;
             match clean_result {
                 Ok(()) => {
                     cleaned += 1;
                     cleaned_bytes += size_bytes;
-                    history.log_success(&path, size_bytes, "event_logs", permanent);
+                    history.log_success(&path, size_bytes, "event_logs", log_as_permanent);
                 }
                 Err(e) => {
                     errors += 1;
@@ -1435,7 +1439,7 @@ fn perform_cleanup(
                         &path,
                         size_bytes,
                         "event_logs",
-                        permanent,
+                        log_as_permanent,
                         &e.to_string(),
                     );
                 }
