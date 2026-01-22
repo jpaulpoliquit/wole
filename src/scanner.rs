@@ -86,32 +86,8 @@ fn save_results_to_cache_background(results: ScanResults, scan_session_id: i64) 
             }
         }
 
-        let total_files = results.cache.items
-            + results.app_cache.items
-            + results.temp.items
-            + results.trash.items
-            + results.build.items
-            + results.downloads.items
-            + results.large.items
-            + results.old.items
-            + results.applications.items
-            + results.browser.items
-            + results.system.items
-            + results.empty.items
-            + results.duplicates.items
-            + results.windows_update.items
-            + results.event_logs.items;
-
-        // Cleanup and finish are non-fatal - scan already completed
-        let removed = cache.cleanup_stale(scan_session_id).unwrap_or(0);
-        let stats = ScanStats {
-            total_files,
-            removed_files: removed,
-            ..Default::default()
-        };
-        if let Err(e) = cache.finish_scan(scan_session_id, stats) {
-            eprintln!("Warning: Failed to finish scan session: {}", e);
-        }
+        // Cleanup stale files (non-fatal - scan already completed)
+        let _removed = cache.cleanup_stale(scan_session_id).unwrap_or(0);
     });
 }
 
@@ -612,9 +588,40 @@ pub fn scan_all(
 
     // Save scanned files to cache in background thread to avoid blocking UI
     // Return results immediately, cache writes happen asynchronously
+    // CRITICAL: finish_scan() must be called synchronously to prevent race condition
+    // where subsequent scans don't see this scan as finished
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
+            // Calculate stats synchronously (needed for finish_scan)
+            let total_files = results.cache.items
+                + results.app_cache.items
+                + results.temp.items
+                + results.trash.items
+                + results.build.items
+                + results.downloads.items
+                + results.large.items
+                + results.old.items
+                + results.applications.items
+                + results.browser.items
+                + results.system.items
+                + results.empty.items
+                + results.duplicates.items
+                + results.windows_update.items
+                + results.event_logs.items;
+
+            // Finish scan synchronously to ensure finished_at is set before returning
+            // This prevents race condition where next scan doesn't see this scan as finished
+            let stats = ScanStats {
+                total_files,
+                removed_files: 0, // Will be updated by cleanup_stale in background thread
+                ..Default::default()
+            };
+            if let Err(e) = cache.finish_scan(scan_session_id, stats) {
+                eprintln!("Warning: Failed to finish scan session: {}", e);
+            }
+
             // Clone results for background thread (only paths and counts, not heavy data)
+            // Background thread handles file caching and cleanup
             let results_for_cache = results.clone();
             save_results_to_cache_background(results_for_cache, scan_session_id);
         }
@@ -1283,9 +1290,40 @@ pub fn scan_all_with_progress(
 
     // Save scanned files to cache in background thread to avoid blocking UI
     // Return results immediately, cache writes happen asynchronously
+    // CRITICAL: finish_scan() must be called synchronously to prevent race condition
+    // where subsequent scans don't see this scan as finished
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
+            // Calculate stats synchronously (needed for finish_scan)
+            let total_files = results.cache.items
+                + results.app_cache.items
+                + results.temp.items
+                + results.trash.items
+                + results.build.items
+                + results.downloads.items
+                + results.large.items
+                + results.old.items
+                + results.applications.items
+                + results.browser.items
+                + results.system.items
+                + results.empty.items
+                + results.duplicates.items
+                + results.windows_update.items
+                + results.event_logs.items;
+
+            // Finish scan synchronously to ensure finished_at is set before returning
+            // This prevents race condition where next scan doesn't see this scan as finished
+            let stats = ScanStats {
+                total_files,
+                removed_files: 0, // Will be updated by cleanup_stale in background thread
+                ..Default::default()
+            };
+            if let Err(e) = cache.finish_scan(scan_session_id, stats) {
+                eprintln!("Warning: Failed to finish scan session: {}", e);
+            }
+
             // Clone results for background thread (only paths and counts, not heavy data)
+            // Background thread handles file caching and cleanup
             let results_for_cache = results.clone();
             save_results_to_cache_background(results_for_cache, scan_session_id);
         }

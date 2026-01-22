@@ -2907,19 +2907,19 @@ pub fn format_cli_output_new(status: &SystemStatus) -> String {
     let cpu_section = format_cpu_section_new(status);
     let memory_section = format_memory_section_new(status);
     output.push_str(&format_two_columns(&cpu_section, &memory_section, 48));
-    output.push_str("\n");
+    output.push('\n');
 
     // Row 2: Disk (left) | Power (right)
     let disk_section = format_disk_section_new(status);
     let power_section = format_power_section_new(status);
     output.push_str(&format_two_columns(&disk_section, &power_section, 48));
-    output.push_str("\n");
+    output.push('\n');
 
     // Row 3: Network (left) | Boot (right)
     let network_section = format_network_section_new(status);
     let boot_section = format_boot_section_new(status);
     output.push_str(&format_two_columns(&network_section, &boot_section, 48));
-    output.push_str("\n");
+    output.push('\n');
 
     // Row 4: Processes (full width)
     let processes_section = format_processes_section_new(status);
@@ -2954,7 +2954,7 @@ fn format_cpu_section_new(status: &SystemStatus) -> Vec<String> {
     lines.push(format!("Total  {}  {}", total_bar_padded, total_value));
 
     // CPU cores in 2-column layout with compact spacing
-    let cores_per_col = (status.cpu.cores.len() + 1) / 2;
+    let cores_per_col = status.cpu.cores.len().div_ceil(2);
     for i in 0..cores_per_col {
         let mut line = String::new();
         // Left column core - fixed width format
@@ -3663,7 +3663,7 @@ fn truncate_to_visible(s: &str, width: usize) -> String {
                 if let Some(next) = chars.next() {
                     result.push(next);
                 }
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     result.push(c);
                     if c == 'm' {
                         break;
@@ -3695,7 +3695,7 @@ fn strip_ansi_codes(s: &str) -> String {
             if chars.peek() == Some(&'[') {
                 chars.next(); // consume '['
                               // Skip until we find 'm' or end
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     if c == 'm' {
                         break;
                     }
