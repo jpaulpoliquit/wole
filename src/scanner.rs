@@ -15,6 +15,82 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 
+/// Save scan results to cache in a background thread to avoid blocking the UI.
+/// This function spawns a thread that opens its own database connection and performs
+/// all cache writes asynchronously, allowing the scan results to be returned immediately.
+fn save_results_to_cache_background(results: ScanResults, scan_session_id: i64) {
+    std::thread::spawn(move || {
+        // Open a new cache connection in the background thread
+        let mut cache = match ScanCache::open() {
+            Ok(cache) => cache,
+            Err(e) => {
+                eprintln!("Warning: Failed to open cache for background write: {}", e);
+                return;
+            }
+        };
+
+        // Save all scanned files to cache using per-category scan IDs
+        // Group files by category and save each group with its category-specific scan ID
+        let mut category_batches: std::collections::HashMap<String, Vec<(FileSignature, String)>> =
+            std::collections::HashMap::new();
+
+        // Helper to add paths from a category result
+        // Exclude files that are in the recycle bin from cache (they were cleaned)
+        // Exception: trash category - those files ARE in recycle bin, so include them
+        let mut add_category_paths = |paths: &[PathBuf], category: &str| {
+            for path in paths {
+                // Skip files that are in the recycle bin (they were cleaned)
+                // UNLESS this is the trash category (which scans recycle bin itself)
+                if category != "trash" && is_in_recycle_bin(path) {
+                    continue;
+                }
+
+                if let Ok(sig) = FileSignature::from_path(path, false) {
+                    category_batches
+                        .entry(category.to_string())
+                        .or_default()
+                        .push((sig, category.to_string()));
+                }
+            }
+        };
+
+        add_category_paths(&results.cache.paths, "cache");
+        add_category_paths(&results.app_cache.paths, "app_cache");
+        add_category_paths(&results.temp.paths, "temp");
+        add_category_paths(&results.trash.paths, "trash");
+        add_category_paths(&results.build.paths, "build");
+        add_category_paths(&results.downloads.paths, "downloads");
+        add_category_paths(&results.large.paths, "large");
+        add_category_paths(&results.old.paths, "old");
+        add_category_paths(&results.browser.paths, "browser");
+        add_category_paths(&results.system.paths, "system");
+        add_category_paths(&results.empty.paths, "empty");
+        add_category_paths(&results.duplicates.paths, "duplicates");
+        add_category_paths(&results.applications.paths, "applications");
+        add_category_paths(&results.windows_update.paths, "windows_update");
+        add_category_paths(&results.event_logs.paths, "event_logs");
+
+        // Save each category's files with its category-specific scan ID
+        for (category, files) in category_batches {
+            if !files.is_empty() {
+                // Get category scan ID (increments if category was scanned before)
+                if let Ok(category_scan_id) = cache.get_category_scan_id(&category, scan_session_id)
+                {
+                    if let Err(e) = cache.upsert_files_batch(&files, category_scan_id) {
+                        eprintln!(
+                            "Warning: Failed to update cache batch for {}: {}",
+                            category, e
+                        );
+                    }
+                }
+            }
+        }
+
+        // Cleanup stale files (non-fatal - scan already completed)
+        let _removed = cache.cleanup_stale(scan_session_id).unwrap_or(0);
+    });
+}
+
 /// Check if a file path is in the recycle bin
 /// Returns true if the file exists in the recycle bin, false otherwise
 fn is_in_recycle_bin(path: &Path) -> bool {
@@ -510,64 +586,13 @@ pub fn scan_all(
     // This ensures cleaned files don't appear in scan results
     filter_recycle_bin_files(&mut results);
 
-    // Save scanned files to cache and finish scan session if cache is enabled (non-fatal if it fails)
+    // Save scanned files to cache in background thread to avoid blocking UI
+    // Return results immediately, cache writes happen asynchronously
+    // CRITICAL: finish_scan() must be called synchronously to prevent race condition
+    // where subsequent scans don't see this scan as finished
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
-            // Save all scanned files to cache using per-category scan IDs
-            // Group files by category and save each group with its category-specific scan ID
-            let mut category_batches: std::collections::HashMap<
-                String,
-                Vec<(FileSignature, String)>,
-            > = std::collections::HashMap::new();
-
-            // Helper to add paths from a category result
-            // Exclude files that are in the recycle bin from cache (they were cleaned)
-            // Exception: trash category - those files ARE in recycle bin, so include them
-            let mut add_category_paths = |paths: &[PathBuf], category: &str| {
-                for path in paths {
-                    // Skip files that are in the recycle bin (they were cleaned)
-                    // UNLESS this is the trash category (which scans recycle bin itself)
-                    if category != "trash" && is_in_recycle_bin(path) {
-                        continue;
-                    }
-
-                    if let Ok(sig) = FileSignature::from_path(path, false) {
-                        category_batches
-                            .entry(category.to_string())
-                            .or_default()
-                            .push((sig, category.to_string()));
-                    }
-                }
-            };
-
-            add_category_paths(&results.cache.paths, "cache");
-            add_category_paths(&results.app_cache.paths, "app_cache");
-            add_category_paths(&results.temp.paths, "temp");
-            add_category_paths(&results.trash.paths, "trash");
-            add_category_paths(&results.build.paths, "build");
-            add_category_paths(&results.downloads.paths, "downloads");
-            add_category_paths(&results.large.paths, "large");
-            add_category_paths(&results.old.paths, "old");
-            add_category_paths(&results.browser.paths, "browser");
-            add_category_paths(&results.system.paths, "system");
-            add_category_paths(&results.empty.paths, "empty");
-            add_category_paths(&results.duplicates.paths, "duplicates");
-            add_category_paths(&results.applications.paths, "applications");
-            add_category_paths(&results.windows_update.paths, "windows_update");
-            add_category_paths(&results.event_logs.paths, "event_logs");
-
-            // Save each category's files with its category-specific scan ID
-            for (category, files) in category_batches {
-                if !files.is_empty() {
-                    // Get category scan ID (increments if category was scanned before)
-                    if let Ok(category_scan_id) =
-                        cache.get_category_scan_id(&category, scan_session_id)
-                    {
-                        let _ = cache.upsert_files_batch(&files, category_scan_id);
-                    }
-                }
-            }
-
+            // Calculate stats synchronously (needed for finish_scan)
             let total_files = results.cache.items
                 + results.app_cache.items
                 + results.temp.items
@@ -584,13 +609,21 @@ pub fn scan_all(
                 + results.windows_update.items
                 + results.event_logs.items;
 
-            let removed = cache.cleanup_stale(scan_session_id).unwrap_or(0);
+            // Finish scan synchronously to ensure finished_at is set before returning
+            // This prevents race condition where next scan doesn't see this scan as finished
             let stats = ScanStats {
                 total_files,
-                removed_files: removed,
+                removed_files: 0, // Will be updated by cleanup_stale in background thread
                 ..Default::default()
             };
-            let _ = cache.finish_scan(scan_session_id, stats);
+            if let Err(e) = cache.finish_scan(scan_session_id, stats) {
+                eprintln!("Warning: Failed to finish scan session: {}", e);
+            }
+
+            // Clone results for background thread (only paths and counts, not heavy data)
+            // Background thread handles file caching and cleanup
+            let results_for_cache = results.clone();
+            save_results_to_cache_background(results_for_cache, scan_session_id);
         }
     }
 
@@ -1255,64 +1288,13 @@ pub fn scan_all_with_progress(
     // This ensures cleaned files don't appear in scan results
     filter_recycle_bin_files(&mut results);
 
-    // Save scanned files to cache and finish scan session if cache is enabled (non-fatal if it fails)
+    // Save scanned files to cache in background thread to avoid blocking UI
+    // Return results immediately, cache writes happen asynchronously
+    // CRITICAL: finish_scan() must be called synchronously to prevent race condition
+    // where subsequent scans don't see this scan as finished
     if let Some(cache) = scan_cache.as_mut() {
         if let Some(scan_session_id) = cache.current_scan_id() {
-            // Save all scanned files to cache using per-category scan IDs
-            // Group files by category and save each group with its category-specific scan ID
-            let mut category_batches: std::collections::HashMap<
-                String,
-                Vec<(FileSignature, String)>,
-            > = std::collections::HashMap::new();
-
-            // Helper to add paths from a category result
-            // Exclude files that are in the recycle bin from cache (they were cleaned)
-            // Exception: trash category - those files ARE in recycle bin, so include them
-            let mut add_category_paths = |paths: &[PathBuf], category: &str| {
-                for path in paths {
-                    // Skip files that are in the recycle bin (they were cleaned)
-                    // UNLESS this is the trash category (which scans recycle bin itself)
-                    if category != "trash" && is_in_recycle_bin(path) {
-                        continue;
-                    }
-
-                    if let Ok(sig) = FileSignature::from_path(path, false) {
-                        category_batches
-                            .entry(category.to_string())
-                            .or_default()
-                            .push((sig, category.to_string()));
-                    }
-                }
-            };
-
-            add_category_paths(&results.cache.paths, "cache");
-            add_category_paths(&results.app_cache.paths, "app_cache");
-            add_category_paths(&results.temp.paths, "temp");
-            add_category_paths(&results.trash.paths, "trash");
-            add_category_paths(&results.build.paths, "build");
-            add_category_paths(&results.downloads.paths, "downloads");
-            add_category_paths(&results.large.paths, "large");
-            add_category_paths(&results.old.paths, "old");
-            add_category_paths(&results.browser.paths, "browser");
-            add_category_paths(&results.system.paths, "system");
-            add_category_paths(&results.empty.paths, "empty");
-            add_category_paths(&results.duplicates.paths, "duplicates");
-            add_category_paths(&results.applications.paths, "applications");
-            add_category_paths(&results.windows_update.paths, "windows_update");
-            add_category_paths(&results.event_logs.paths, "event_logs");
-
-            // Save each category's files with its category-specific scan ID
-            for (category, files) in category_batches {
-                if !files.is_empty() {
-                    // Get category scan ID (increments if category was scanned before)
-                    if let Ok(category_scan_id) =
-                        cache.get_category_scan_id(&category, scan_session_id)
-                    {
-                        let _ = cache.upsert_files_batch(&files, category_scan_id);
-                    }
-                }
-            }
-
+            // Calculate stats synchronously (needed for finish_scan)
             let total_files = results.cache.items
                 + results.app_cache.items
                 + results.temp.items
@@ -1329,14 +1311,21 @@ pub fn scan_all_with_progress(
                 + results.windows_update.items
                 + results.event_logs.items;
 
-            // Cleanup and finish are non-fatal - scan already completed
-            let removed = cache.cleanup_stale(scan_session_id).unwrap_or(0);
+            // Finish scan synchronously to ensure finished_at is set before returning
+            // This prevents race condition where next scan doesn't see this scan as finished
             let stats = ScanStats {
                 total_files,
-                removed_files: removed,
+                removed_files: 0, // Will be updated by cleanup_stale in background thread
                 ..Default::default()
             };
-            let _ = cache.finish_scan(scan_session_id, stats);
+            if let Err(e) = cache.finish_scan(scan_session_id, stats) {
+                eprintln!("Warning: Failed to finish scan session: {}", e);
+            }
+
+            // Clone results for background thread (only paths and counts, not heavy data)
+            // Background thread handles file caching and cleanup
+            let results_for_cache = results.clone();
+            save_results_to_cache_background(results_for_cache, scan_session_id);
         }
     }
 

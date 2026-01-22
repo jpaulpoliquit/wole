@@ -469,6 +469,10 @@ pub enum Commands {
         /// Continuous refresh mode (updates every second)
         #[arg(short = 'w', long)]
         watch: bool,
+
+        /// Use new experimental display format
+        #[arg(long)]
+        new: bool,
     },
 
     /// Manage Windows startup programs
@@ -765,8 +769,8 @@ impl Cli {
                 //     }
                 //     Ok(())
                 // }
-                Commands::Status { json, watch } => {
-                    commands::status_command::handle_status(json, watch)
+                Commands::Status { json, watch, new } => {
+                    commands::status_command::handle_status(json, watch, new)
                 }
                 Commands::Startup {
                     list,

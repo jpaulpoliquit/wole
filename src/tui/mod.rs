@@ -78,19 +78,8 @@ pub fn run(initial_state: Option<AppState>) -> Result<()> {
             // Trigger disk breakdown scan in background on first load if cache is empty
             #[cfg(windows)]
             {
-                use crate::status::gather_disk_breakdown_cached_only;
-                use std::sync::atomic::{AtomicBool, Ordering};
-                static DISK_BREAKDOWN_TRIGGERED: AtomicBool = AtomicBool::new(false);
-
-                // Check if we need to trigger background scan (only once per session)
-                if !DISK_BREAKDOWN_TRIGGERED.load(Ordering::Relaxed) {
-                    if gather_disk_breakdown_cached_only().is_none() {
-                        // Cache is empty, trigger background scan
-                        use crate::status::refresh_disk_breakdown_async;
-                        refresh_disk_breakdown_async();
-                    }
-                    DISK_BREAKDOWN_TRIGGERED.store(true, Ordering::Relaxed);
-                }
+                use crate::status::ensure_disk_breakdown_refresh;
+                ensure_disk_breakdown_refresh();
             }
 
             // Check for status updates from background thread (non-blocking)
