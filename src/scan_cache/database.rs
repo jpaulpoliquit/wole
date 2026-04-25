@@ -995,17 +995,14 @@ impl ScanCache {
 }
 
 fn is_busy_error(err: &anyhow::Error) -> bool {
-    match err.downcast_ref::<rusqlite::Error>() {
+    matches!(
+        err.downcast_ref::<rusqlite::Error>(),
         Some(rusqlite::Error::SqliteFailure(code, _))
             if matches!(
                 code.code,
                 ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
-            ) =>
-        {
-            true
-        }
-        _ => false,
-    }
+            )
+    )
 }
 
 /// Get cache directory path

@@ -300,14 +300,14 @@ pub const CATEGORIES: &[CategoryDef] = &[
         scan_field: "browser",
         safe: true,
         default_enabled: true,
-        description: "Web browser data cache",
+        description: "Chromium caches per profile; Comet = narrow folders under User Data only; Firefox cache2",
     },
     CategoryDef {
         name: "Application Cache",
         scan_field: "app_cache",
         safe: true,
         default_enabled: true,
-        description: "App data cache (Notion, VS Code, Slack, etc.)",
+        description: "Curated app cache & updater paths; includes review-worthy Notion Partitions and Cursor snapshots (not globalStorage/state DB)",
     },
     CategoryDef {
         name: "System Cache",
@@ -329,14 +329,15 @@ pub const CATEGORIES: &[CategoryDef] = &[
         scan_field: "build",
         safe: true,
         default_enabled: true,
-        description: "node_modules, target, .next",
+        description: "node_modules, target, .next, .vite, dist",
     },
     CategoryDef {
         name: "Package Cache",
         scan_field: "cache",
         safe: true,
         default_enabled: false,
-        description: "Package manager cache (npm, pip, nuget, etc.)",
+        description:
+            "npm/pnpm/Cargo/Playwright; ~/.cache; Claude ~/.claude projects/plans/file-history/tasks",
     },
     // C. Space Hunters (review required, biggest wins)
     CategoryDef {

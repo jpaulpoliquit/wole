@@ -2,240 +2,237 @@ use crate::config::Config;
 use crate::output::CategoryResult;
 use crate::utils;
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-/// Browser cache locations to scan
-/// Each tuple is (name, path_from_localappdata)
-const BROWSER_CACHES: &[(&str, &[&str])] = &[
-    // Chrome family
-    // Chrome family
-    (
-        "Chrome",
-        &[
-            "Google",
-            "Chrome",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    (
-        "Chrome (Beta)",
-        &[
-            "Google",
-            "Chrome Beta",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    (
-        "Chrome (Dev)",
-        &[
-            "Google",
-            "Chrome Dev",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Edge family
-    (
-        "Edge",
-        &[
-            "Microsoft",
-            "Edge",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    (
-        "Edge (Beta)",
-        &[
-            "Microsoft",
-            "Edge Beta",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    (
-        "Edge (Dev)",
-        &[
-            "Microsoft",
-            "Edge Dev",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Brave
-    (
-        "Brave",
-        &[
-            "BraveSoftware",
-            "Brave-Browser",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
+/// Chromium-based browsers: display name and path under %LOCALAPPDATA% up to and including `User Data`.
+///
+/// **Perplexity Comet** is not scanned as a full Chromium profile tree: only narrow
+/// cache folders under `Perplexity\\Comet\\User Data` are collected by
+/// `collect_comet_narrow_caches`. We never target `Comet\\Application`, the whole `Comet`
+/// install directory, or Roaming `Perplexity` (those are excluded from application-cache
+/// heuristics in the `app_cache` module).
+const CHROMIUM_USER_DATA_ROOTS: &[(&str, &[&str])] = &[
+    ("Chrome", &["Google", "Chrome", "User Data"]),
+    ("Chrome (Beta)", &["Google", "Chrome Beta", "User Data"]),
+    ("Chrome (Dev)", &["Google", "Chrome Dev", "User Data"]),
+    ("Edge", &["Microsoft", "Edge", "User Data"]),
+    ("Edge (Beta)", &["Microsoft", "Edge Beta", "User Data"]),
+    ("Edge (Dev)", &["Microsoft", "Edge Dev", "User Data"]),
+    ("Brave", &["BraveSoftware", "Brave-Browser", "User Data"]),
     (
         "Brave (Beta)",
-        &[
-            "BraveSoftware",
-            "Brave-Browser-Beta",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
+        &["BraveSoftware", "Brave-Browser-Beta", "User Data"],
     ),
-    // Opera
-    ("Opera", &["Opera Software", "Opera Stable", "Cache"]),
-    // Arc
-    (
-        "Arc",
-        &[
-            "The Browser Company",
-            "Arc",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Comet
-    (
-        "Perplexity",
-        &[
-            "Perplexity",
-            "Perplexity",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Atlast by OpenAI
-    (
-        "Atlas",
-        &[
-            "OpenAI",
-            "Atlast",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Vivaldi
-    (
-        "Vivaldi",
-        &["Vivaldi", "User Data", "Default", "Cache", "Cache_Data"],
-    ),
-    // Firefox (profile handled separately)
-    // ("Firefox", profile-based, see scan impl)
-    // Chromium (unbranded)
-    (
-        "Chromium",
-        &["Chromium", "User Data", "Default", "Cache", "Cache_Data"],
-    ),
-    // Sidekick
-    (
-        "Sidekick",
-        &[
-            "Redundant",
-            "Sidekick",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
-    // Yandex Browser
-    (
-        "Yandex",
-        &["Yandex", "YandexBrowser", "User Data", "Default", "Cache"],
-    ),
-    // Avast Secure Browser
+    ("Arc", &["The Browser Company", "Arc", "User Data"]),
+    ("Atlas", &["OpenAI", "Atlast", "User Data"]),
+    ("Vivaldi", &["Vivaldi", "User Data"]),
+    ("Chromium", &["Chromium", "User Data"]),
+    ("Sidekick", &["Redundant", "Sidekick", "User Data"]),
+    ("Yandex", &["Yandex", "YandexBrowser", "User Data"]),
     (
         "Avast Secure Browser",
-        &[
-            "AVAST Software",
-            "Browser",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
+        &["AVAST Software", "Browser", "User Data"],
     ),
-    // CCleaner Browser
     (
         "CCleaner Browser",
-        &[
-            "CCleaner",
-            "CCleaner Browser",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
+        &["CCleaner", "CCleaner Browser", "User Data"],
     ),
-    // Torch Browser
-    (
-        "Torch",
-        &["Torch", "User Data", "Default", "Cache", "Cache_Data"],
-    ),
-    // Epic Privacy Browser
-    (
-        "Epic",
-        &[
-            "Epic Privacy Browser",
-            "User Data",
-            "Default",
-            "Cache",
-            "Cache_Data",
-        ],
-    ),
+    ("Torch", &["Torch", "User Data"]),
+    ("Epic", &["Epic Privacy Browser", "User Data"]),
 ];
+
+/// Cache folder names relative to a Chromium profile directory (e.g. `Default`, `Profile 1`).
+const CHROMIUM_PROFILE_CACHE_DIRS: &[&str] = &[
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+    "DawnCache",
+    "DawnWebGPUCache",
+    "DawnGraphiteCache",
+    "component_crx_cache",
+    "optimization_guide_model_store",
+    "Safe Browsing",
+    "Snapshots",
+];
+
+/// Paths relative to the Chromium `User Data` root (sibling of profile folders).
+const CHROMIUM_USER_DATA_ROOT_CACHE_DIRS: &[&str] = &[
+    "BrowserMetrics",
+    "component_crx_cache",
+    "optimization_guide_model_store",
+    "Crashpad",
+];
+
+/// Opera-style single cache root under %LOCALAPPDATA% (not Chromium profile layout).
+const OPERA_STYLE_CACHES: &[(&str, &[&str])] =
+    &[("Opera", &["Opera Software", "Opera Stable", "Cache"])];
+
+/// Comet (`%LOCALAPPDATA%\\Perplexity\\Comet\\User Data`): only these profile subfolders,
+/// plus `Crashpad\\reports` under `User Data` — never `Application` or the `Comet` root.
+const COMET_USER_DATA_SEGMENTS: &[&str] = &["Perplexity", "Comet", "User Data"];
+const COMET_PROFILE_NARROW_CACHE_DIRS: &[&str] = &[
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+];
+
+/// Narrow disk-cache paths for Perplexity Comet only (browser install stays intact).
+fn collect_comet_narrow_caches(
+    local_appdata: &Path,
+    paths: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+    config: &Config,
+) {
+    let user_data_root = join_localappdata(local_appdata, COMET_USER_DATA_SEGMENTS);
+    if !user_data_root.is_dir() {
+        return;
+    }
+
+    let reports = user_data_root.join("Crashpad").join("reports");
+    if reports.is_dir() && !config.is_excluded(&reports) && seen.insert(reports.clone()) {
+        paths.push(reports);
+    }
+
+    let entries = match utils::safe_read_dir(&user_data_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !is_chromium_profile_dir(name) {
+            continue;
+        }
+        for cache_name in COMET_PROFILE_NARROW_CACHE_DIRS {
+            let cache_path = path.join(cache_name);
+            if cache_path.is_dir()
+                && !config.is_excluded(&cache_path)
+                && seen.insert(cache_path.clone())
+            {
+                paths.push(cache_path);
+            }
+        }
+    }
+}
+
+/// Returns true if `name` looks like a Chromium profile directory under `User Data`.
+fn is_chromium_profile_dir(name: &str) -> bool {
+    name == "Default"
+        || name.starts_with("Profile ")
+        || name == "Guest Profile"
+        || name == "System Profile"
+}
+
+fn join_localappdata(local_appdata: &Path, segments: &[&str]) -> PathBuf {
+    let mut p = local_appdata.to_path_buf();
+    for s in segments {
+        p.push(s);
+    }
+    p
+}
+
+/// Collect Chromium-family cache paths under one `User Data` root. Deduplicates paths.
+fn collect_chromium_family_caches(
+    local_appdata: &Path,
+    user_data_segments: &[&str],
+    paths: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+    config: &Config,
+) {
+    let user_data_root = join_localappdata(local_appdata, user_data_segments);
+    if !user_data_root.is_dir() {
+        return;
+    }
+
+    // Root-level buckets (e.g. BrowserMetrics, Crashpad/reports)
+    for rel in CHROMIUM_USER_DATA_ROOT_CACHE_DIRS {
+        let candidate = user_data_root.join(rel);
+        if rel == &"Crashpad" {
+            let reports = candidate.join("reports");
+            if reports.is_dir() && !config.is_excluded(&reports) && seen.insert(reports.clone()) {
+                paths.push(reports);
+            }
+        } else if candidate.is_dir()
+            && !config.is_excluded(&candidate)
+            && seen.insert(candidate.clone())
+        {
+            paths.push(candidate);
+        }
+    }
+
+    // Per-profile cache directories
+    let entries = match utils::safe_read_dir(&user_data_root) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !is_chromium_profile_dir(name) {
+            continue;
+        }
+        for cache_name in CHROMIUM_PROFILE_CACHE_DIRS {
+            let cache_path = path.join(cache_name);
+            if cache_path.is_dir()
+                && !config.is_excluded(&cache_path)
+                && seen.insert(cache_path.clone())
+            {
+                paths.push(cache_path);
+            }
+        }
+    }
+}
 
 /// Scan for browser cache directories
 ///
-/// Checks well-known Windows cache locations for Chrome, Edge, and Firefox.
+/// Checks well-known Windows cache locations for Chromium-family browsers (disk caches
+/// only, not cookies/history databases), Opera, and Firefox.
 pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
     let mut paths = Vec::new();
+    let mut seen = HashSet::new();
 
     let local_appdata = env::var("LOCALAPPDATA").ok().map(PathBuf::from);
 
-    // Scan Chrome and Edge caches (fixed paths)
     if let Some(ref local_appdata_path) = local_appdata {
-        for (_name, subpaths) in BROWSER_CACHES {
-            let mut cache_path = local_appdata_path.clone();
-            for subpath in *subpaths {
-                cache_path = cache_path.join(subpath);
-            }
+        for (_name, segments) in CHROMIUM_USER_DATA_ROOTS {
+            collect_chromium_family_caches(
+                local_appdata_path,
+                segments,
+                &mut paths,
+                &mut seen,
+                config,
+            );
+        }
 
-            if cache_path.exists() && !config.is_excluded(&cache_path) {
-                let size = utils::calculate_dir_size(&cache_path);
-                if size > 0 {
-                    result.items += 1;
-                    result.size_bytes += size;
-                    paths.push(cache_path);
-                }
+        for (_name, segments) in OPERA_STYLE_CACHES {
+            let cache_path = join_localappdata(local_appdata_path, segments);
+            if cache_path.exists()
+                && !config.is_excluded(&cache_path)
+                && seen.insert(cache_path.clone())
+            {
+                paths.push(cache_path);
             }
         }
+
+        collect_comet_narrow_caches(local_appdata_path, &mut paths, &mut seen, config);
     }
 
     // Scan Firefox profiles (need to glob for profile directories)
@@ -245,7 +242,6 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
             .join("Firefox")
             .join("Profiles");
         if firefox_profiles.exists() {
-            // Walk through profile directories
             for entry in WalkDir::new(&firefox_profiles)
                 .max_depth(2)
                 .follow_links(false)
@@ -260,32 +256,34 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
                         .map(|n| n.contains(".default"))
                         .unwrap_or(false)
                 {
-                    // Found a Firefox profile directory, check for cache2
                     let cache2_path = path.join("cache2");
-                    if cache2_path.exists() && !config.is_excluded(&cache2_path) {
-                        let size = utils::calculate_dir_size(&cache2_path);
-                        if size > 0 {
-                            result.items += 1;
-                            result.size_bytes += size;
-                            paths.push(cache2_path);
-                        }
+                    if cache2_path.exists()
+                        && !config.is_excluded(&cache2_path)
+                        && seen.insert(cache2_path.clone())
+                    {
+                        paths.push(cache2_path);
                     }
                 }
             }
         }
     }
 
-    // Sort by size descending
     let mut paths_with_sizes: Vec<(PathBuf, u64)> = paths
         .into_iter()
+        .filter(|p| p.exists())
         .map(|p| {
             let size = utils::calculate_dir_size(&p);
             (p, size)
         })
+        .filter(|(_, size)| *size > 0)
         .collect();
     paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
 
-    result.paths = paths_with_sizes.into_iter().map(|(p, _)| p).collect();
+    for (path, size) in paths_with_sizes.iter() {
+        result.items += 1;
+        result.size_bytes += size;
+        result.paths.push(path.clone());
+    }
 
     Ok(result)
 }
@@ -298,4 +296,31 @@ pub fn clean(path: &Path) -> Result<()> {
     crate::trash_ops::delete(path)
         .with_context(|| format!("Failed to delete browser cache: {}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chromium_profile_dir_detection() {
+        assert!(is_chromium_profile_dir("Default"));
+        assert!(is_chromium_profile_dir("Profile 1"));
+        assert!(is_chromium_profile_dir("Guest Profile"));
+        assert!(!is_chromium_profile_dir("Crashpad"));
+        assert!(!is_chromium_profile_dir("Local State"));
+    }
+
+    #[test]
+    fn join_localappdata_builds_path() {
+        let base = Path::new(r"C:\Users\test\AppData\Local");
+        let p = join_localappdata(base, &["Google", "Chrome", "User Data"]);
+        assert!(p.ends_with("User Data"));
+        assert!(p.to_string_lossy().contains("Chrome"));
+    }
+
+    #[test]
+    fn comet_narrow_cache_allowlist_count() {
+        assert_eq!(COMET_PROFILE_NARROW_CACHE_DIRS.len(), 5);
+    }
 }

@@ -236,6 +236,17 @@ pub fn print_human_with_options(
 
     for (name, result, status) in categories {
         if result.items > 0 {
+            let status = if name == "Application cache" {
+                if crate::categories::app_cache::scan_includes_review_worthy_paths(
+                    &results.app_cache.paths,
+                ) {
+                    "[!] Review suggested"
+                } else {
+                    "[OK] Safe to clean"
+                }
+            } else {
+                status
+            };
             let status_colored = if status.starts_with("[OK]") {
                 Theme::status_safe(status)
             } else {

@@ -31,16 +31,8 @@ const APP_CACHE_LOCATIONS: &[(&str, AppCacheLocation)] = &[
         AppCacheLocation::LocalAppDataNested(&["slack", "Cache"]),
     ),
     (
-        "Spotify",
-        AppCacheLocation::LocalAppDataNested(&["Spotify", "Storage"]),
-    ),
-    (
         "Steam",
         AppCacheLocation::LocalAppDataNested(&["Steam", "htmlcache"]),
-    ),
-    (
-        "Telegram",
-        AppCacheLocation::LocalAppDataNested(&["Telegram Desktop", "tdata"]),
     ),
     (
         "Zoom",
@@ -53,6 +45,30 @@ const APP_CACHE_LOCATIONS: &[(&str, AppCacheLocation)] = &[
     (
         "Notion",
         AppCacheLocation::LocalAppDataNested(&["Notion", "Cache"]),
+    ),
+    (
+        "Notion (Roaming Cache)",
+        AppCacheLocation::AppDataNested(&["Notion", "Cache"]),
+    ),
+    (
+        "Notion (Roaming Code Cache)",
+        AppCacheLocation::AppDataNested(&["Notion", "Code Cache"]),
+    ),
+    (
+        "Notion (Roaming GPUCache)",
+        AppCacheLocation::AppDataNested(&["Notion", "GPUCache"]),
+    ),
+    (
+        "Notion (Roaming DawnWebGPUCache)",
+        AppCacheLocation::AppDataNested(&["Notion", "DawnWebGPUCache"]),
+    ),
+    (
+        "Notion (Roaming DawnGraphiteCache)",
+        AppCacheLocation::AppDataNested(&["Notion", "DawnGraphiteCache"]),
+    ),
+    (
+        "Notion (Roaming Partitions)",
+        AppCacheLocation::AppDataNested(&["Notion", "Partitions"]),
     ),
     (
         "Figma",
@@ -134,21 +150,176 @@ const APP_CACHE_LOCATIONS: &[(&str, AppCacheLocation)] = &[
         "7-Zip",
         AppCacheLocation::LocalAppDataNested(&["7-Zip", "Cache"]),
     ),
+    // App updaters (download residue under %LOCALAPPDATA%)
+    (
+        "Obsidian updater",
+        AppCacheLocation::LocalAppDataNested(&["obsidian-updater"]),
+    ),
+    (
+        "Notion updater",
+        AppCacheLocation::LocalAppDataNested(&["notion-updater"]),
+    ),
+    (
+        "Notion Calendar updater",
+        AppCacheLocation::LocalAppDataNested(&["notion-calendar-web-updater"]),
+    ),
+    (
+        "Cron updater",
+        AppCacheLocation::LocalAppDataNested(&["cron-updater"]),
+    ),
+    (
+        "Cron web updater",
+        AppCacheLocation::LocalAppDataNested(&["cron-web-updater"]),
+    ),
+    (
+        "Cursor updater",
+        AppCacheLocation::LocalAppDataNested(&["cursor-updater"]),
+    ),
+    (
+        "Cursor Nightly updater",
+        AppCacheLocation::LocalAppDataNested(&["cursor-nightly-updater"]),
+    ),
+    // Cursor / Cursor Nightly: cache and logs only (never globalStorage / state DB)
+    (
+        "Cursor (CachedExtensionVSIXs)",
+        AppCacheLocation::AppDataNested(&["Cursor", "CachedExtensionVSIXs"]),
+    ),
+    (
+        "Cursor (CachedData)",
+        AppCacheLocation::AppDataNested(&["Cursor", "CachedData"]),
+    ),
+    (
+        "Cursor (Cache)",
+        AppCacheLocation::AppDataNested(&["Cursor", "Cache"]),
+    ),
+    (
+        "Cursor (Code Cache)",
+        AppCacheLocation::AppDataNested(&["Cursor", "Code Cache"]),
+    ),
+    (
+        "Cursor (GPUCache)",
+        AppCacheLocation::AppDataNested(&["Cursor", "GPUCache"]),
+    ),
+    (
+        "Cursor (DawnWebGPUCache)",
+        AppCacheLocation::AppDataNested(&["Cursor", "DawnWebGPUCache"]),
+    ),
+    (
+        "Cursor (DawnGraphiteCache)",
+        AppCacheLocation::AppDataNested(&["Cursor", "DawnGraphiteCache"]),
+    ),
+    (
+        "Cursor (logs)",
+        AppCacheLocation::AppDataNested(&["Cursor", "logs"]),
+    ),
+    (
+        "Cursor (snapshots)",
+        AppCacheLocation::AppDataNested(&["Cursor", "snapshots"]),
+    ),
+    (
+        "Cursor Nightly (CachedExtensionVSIXs)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "CachedExtensionVSIXs"]),
+    ),
+    (
+        "Cursor Nightly (CachedData)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "CachedData"]),
+    ),
+    (
+        "Cursor Nightly (Cache)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "Cache"]),
+    ),
+    (
+        "Cursor Nightly (Code Cache)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "Code Cache"]),
+    ),
+    (
+        "Cursor Nightly (GPUCache)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "GPUCache"]),
+    ),
+    (
+        "Cursor Nightly (DawnWebGPUCache)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "DawnWebGPUCache"]),
+    ),
+    (
+        "Cursor Nightly (DawnGraphiteCache)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "DawnGraphiteCache"]),
+    ),
+    (
+        "Cursor Nightly (logs)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "logs"]),
+    ),
+    (
+        "Cursor Nightly (snapshots)",
+        AppCacheLocation::AppDataNested(&["Cursor Nightly", "snapshots"]),
+    ),
 ];
 
 enum AppCacheLocation {
     LocalAppDataNested(&'static [&'static str]),
+    /// Paths under `%APPDATA%` (Roaming).
+    AppDataNested(&'static [&'static str]),
 }
 
-/// Common cache directory names used by applications
+fn resolve_app_cache_path(
+    location: &AppCacheLocation,
+    local_appdata: Option<&PathBuf>,
+    appdata: Option<&PathBuf>,
+) -> Option<PathBuf> {
+    match location {
+        AppCacheLocation::LocalAppDataNested(subpaths) => {
+            let mut path = local_appdata?.clone();
+            for subpath in *subpaths {
+                path = path.join(subpath);
+            }
+            Some(path)
+        }
+        AppCacheLocation::AppDataNested(subpaths) => {
+            let mut path = appdata?.clone();
+            for subpath in *subpaths {
+                path = path.join(subpath);
+            }
+            Some(path)
+        }
+    }
+}
+
+/// Common cache directory names used by applications (generic discovery; tests only).
+#[cfg(test)]
 const CACHE_DIR_NAMES: &[&str] = &["Cache", "cache", "Caches", ".cache", "Cache_Data"];
 
-/// Scan for app-specific cache directories
+#[derive(Clone, Copy)]
+#[cfg(test)]
+enum AppCacheScanBase {
+    LocalAppData,
+    AppData,
+}
+
+/// Skip generic cache discovery for Perplexity / Comet install trees and the updater.
+/// Comet disk caches are handled only in `browser` with a narrow allowlist; do not
+/// delete `%LOCALAPPDATA%\\Perplexity\\Comet` or `%APPDATA%\\Perplexity` wholesale.
+#[cfg(test)]
+fn should_skip_branded_app_cache_dir(base: AppCacheScanBase, dir: &Path) -> bool {
+    let Some(name) = dir.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    match base {
+        AppCacheScanBase::AppData => name.eq_ignore_ascii_case("Perplexity"),
+        AppCacheScanBase::LocalAppData => {
+            name.eq_ignore_ascii_case("Perplexity")
+                || name.eq_ignore_ascii_case("perplexity-updater")
+                || name.eq_ignore_ascii_case("Comet")
+        }
+    }
+}
+
+/// Scan for app-specific cache directories via name heuristics.
 ///
-/// Scans %LOCALAPPDATA% and %APPDATA% for app directories containing cache folders.
-/// Looks for common cache directory names like "Cache", "cache", "Caches", etc.
+/// **Not used by default scans** — application cache is curated allowlist only.
+/// Kept for unit tests and possible future opt-in tooling.
+#[cfg(test)]
 fn scan_app_caches(
     base_path: &Path,
+    base_kind: AppCacheScanBase,
     known_paths: &mut HashSet<PathBuf>,
     config: &Config,
 ) -> Vec<PathBuf> {
@@ -169,6 +340,10 @@ fn scan_app_caches(
 
         // Skip if not a directory
         if !app_dir.is_dir() {
+            continue;
+        }
+
+        if should_skip_branded_app_cache_dir(base_kind, &app_dir) {
             continue;
         }
 
@@ -194,6 +369,10 @@ fn scan_app_caches(
                     continue;
                 }
 
+                if should_skip_branded_app_cache_dir(base_kind, &nested_dir) {
+                    continue;
+                }
+
                 // Check for cache directories in nested app directories
                 for cache_name in CACHE_DIR_NAMES {
                     let cache_path = nested_dir.join(cache_name);
@@ -216,10 +395,10 @@ fn scan_app_caches(
 
 /// Scan for application cache directories
 ///
-/// Scan for application cache directories
-///
-/// Checks well-known Windows cache locations for various applications.
-/// Also scans generically for app cache directories.
+/// Checks a curated allowlist of well-known Windows cache locations for various
+/// applications (plus a few review-worthy state-adjacent paths such as Notion
+/// `Partitions` and Cursor `snapshots`). Generic `%LOCALAPPDATA%` / `%APPDATA%`
+/// cache-name discovery is disabled for normal scans.
 ///
 /// Optimized to calculate directory sizes in parallel.
 pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<CategoryResult> {
@@ -241,15 +420,7 @@ pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<Ca
 
     // Scan known application caches
     for (name, location) in APP_CACHE_LOCATIONS {
-        let cache_path = match location {
-            AppCacheLocation::LocalAppDataNested(subpaths) => local_appdata.as_ref().map(|p| {
-                let mut path = p.clone();
-                for subpath in *subpaths {
-                    path = path.join(subpath);
-                }
-                path
-            }),
-        };
+        let cache_path = resolve_app_cache_path(location, local_appdata.as_ref(), appdata.as_ref());
 
         if let Some(cache_path) = cache_path {
             if cache_path.exists() && !config.is_excluded(&cache_path) {
@@ -260,18 +431,6 @@ pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<Ca
                 }
             }
         }
-    }
-
-    // Scan app-specific caches in LOCALAPPDATA
-    if let Some(ref local_appdata_path) = local_appdata {
-        let app_caches = scan_app_caches(local_appdata_path, &mut known_paths, config);
-        candidates.extend(app_caches);
-    }
-
-    // Scan app-specific caches in APPDATA
-    if let Some(ref appdata_path) = appdata {
-        let app_caches = scan_app_caches(appdata_path, &mut known_paths, config);
-        candidates.extend(app_caches);
     }
 
     // 2. Calculate sizes sequentially per folder, but folder size check is parallel
@@ -331,7 +490,6 @@ pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<Ca
 }
 
 /// Scan with real-time progress events (for TUI).
-/// Scan with real-time progress events (for TUI).
 pub fn scan_with_progress(
     _root: &Path,
     config: &Config,
@@ -345,8 +503,8 @@ pub fn scan_with_progress(
     let local_appdata = env::var("LOCALAPPDATA").ok().map(PathBuf::from);
     let appdata = env::var("APPDATA").ok().map(PathBuf::from);
 
-    // Estimate total: known locations + app cache scanning (approximate)
-    let total = APP_CACHE_LOCATIONS.len() as u64 + 2; // +2 for LOCALAPPDATA and APPDATA app cache scans
+    let total = APP_CACHE_LOCATIONS.len() as u64;
+    #[allow(unused_assignments)]
     let mut completed = 0u64;
 
     let _ = tx.send(ScanProgressEvent::CategoryStarted {
@@ -360,15 +518,7 @@ pub fn scan_with_progress(
 
     // Scan known application caches
     for (idx, (_name, location)) in APP_CACHE_LOCATIONS.iter().enumerate() {
-        let cache_path = match location {
-            AppCacheLocation::LocalAppDataNested(subpaths) => local_appdata.as_ref().map(|p| {
-                let mut path = p.clone();
-                for subpath in *subpaths {
-                    path = path.join(subpath);
-                }
-                path
-            }),
-        };
+        let cache_path = resolve_app_cache_path(location, local_appdata.as_ref(), appdata.as_ref());
 
         if let Some(cache_path) = cache_path {
             if cache_path.exists() && !config.is_excluded(&cache_path) {
@@ -397,43 +547,6 @@ pub fn scan_with_progress(
         }
     }
 
-    // Scan app-specific caches in LOCALAPPDATA
-    if let Some(ref local_appdata_path) = local_appdata {
-        let _ = tx.send(ScanProgressEvent::CategoryProgress {
-            category: CATEGORY.to_string(),
-            completed_units: completed + 1,
-            total_units: Some(total),
-            current_path: Some(local_appdata_path.clone()),
-        });
-
-        let app_caches = scan_app_caches(local_appdata_path, &mut known_paths, config);
-        for cache_path in app_caches {
-            let size = utils::calculate_dir_size_with_progress(&cache_path, &on_path);
-            if size > 0 {
-                files_with_sizes.push((cache_path, size));
-            }
-        }
-        completed += 1;
-    }
-
-    // Scan app-specific caches in APPDATA
-    if let Some(ref appdata_path) = appdata {
-        let _ = tx.send(ScanProgressEvent::CategoryProgress {
-            category: CATEGORY.to_string(),
-            completed_units: completed + 1,
-            total_units: Some(total),
-            current_path: Some(appdata_path.clone()),
-        });
-
-        let app_caches = scan_app_caches(appdata_path, &mut known_paths, config);
-        for cache_path in app_caches {
-            let size = utils::calculate_dir_size_with_progress(&cache_path, &on_path);
-            if size > 0 {
-                files_with_sizes.push((cache_path, size));
-            }
-        }
-    }
-
     // Sort by size descending
     files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
 
@@ -453,6 +566,41 @@ pub fn scan_with_progress(
     Ok(result)
 }
 
+/// True when any scanned path is state-adjacent and should be reviewed before clean
+/// (Notion roaming `Partitions`, Cursor / Cursor Nightly `snapshots`).
+pub fn scan_includes_review_worthy_paths(paths: &[PathBuf]) -> bool {
+    paths.iter().any(|p| is_review_worthy_app_cache_path(p))
+}
+
+fn is_review_worthy_app_cache_path(path: &Path) -> bool {
+    let Some(leaf) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+
+    if leaf.eq_ignore_ascii_case("Partitions") {
+        if let Some(parent) = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+        {
+            return parent.eq_ignore_ascii_case("Notion");
+        }
+    }
+
+    if leaf.eq_ignore_ascii_case("snapshots") {
+        if let Some(parent) = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+        {
+            return parent.eq_ignore_ascii_case("Cursor")
+                || parent.eq_ignore_ascii_case("Cursor Nightly");
+        }
+    }
+
+    false
+}
+
 /// Clean (delete) an application cache directory by moving it to the Recycle Bin
 pub fn clean(path: &Path) -> Result<()> {
     crate::trash_ops::delete(path).with_context(|| {
@@ -462,4 +610,209 @@ pub fn clean(path: &Path) -> Result<()> {
         )
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static APP_CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn app_cache_allowlist_never_targets_cursor_state_or_settings() {
+        let forbidden = [
+            "globalStorage",
+            "state.vscdb",
+            "workspaceStorage",
+            "User\\settings",
+            "User/settings",
+        ];
+        for (label, loc) in APP_CACHE_LOCATIONS {
+            let joined = match loc {
+                AppCacheLocation::LocalAppDataNested(parts)
+                | AppCacheLocation::AppDataNested(parts) => parts.join("/"),
+            };
+            for fragment in forbidden {
+                assert!(
+                    !joined.contains(fragment),
+                    "label={label} segments={joined} must not contain {fragment}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_appdata_nested_cursor_cache() {
+        let local = PathBuf::from(r"C:\AppData\Local");
+        let roaming = PathBuf::from(r"C:\AppData\Roaming");
+        let loc = AppCacheLocation::AppDataNested(&["Cursor", "Cache"]);
+        let p = resolve_app_cache_path(&loc, Some(&local), Some(&roaming)).unwrap();
+        assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("Cache"));
+        assert_eq!(
+            p.parent()
+                .and_then(|parent| parent.file_name())
+                .and_then(|n| n.to_str()),
+            Some("Cursor")
+        );
+    }
+
+    #[test]
+    fn resolve_localappdata_nested() {
+        let local = PathBuf::from(r"C:\AppData\Local");
+        let roaming = PathBuf::from(r"C:\AppData\Roaming");
+        let loc = AppCacheLocation::LocalAppDataNested(&["notion-updater"]);
+        let p = resolve_app_cache_path(&loc, Some(&local), Some(&roaming)).unwrap();
+        assert!(p.ends_with("notion-updater"));
+    }
+
+    #[test]
+    fn generic_scan_skips_perplexity_comet_and_updater_roots() {
+        assert!(!APP_CACHE_LOCATIONS
+            .iter()
+            .any(|(n, _)| n.to_ascii_lowercase().contains("perplexity-updater")));
+        let roaming = PathBuf::from(r"C:\AppData\Roaming\Perplexity");
+        assert!(should_skip_branded_app_cache_dir(
+            AppCacheScanBase::AppData,
+            &roaming
+        ));
+        let local_perp = PathBuf::from(r"C:\AppData\Local\Perplexity");
+        assert!(should_skip_branded_app_cache_dir(
+            AppCacheScanBase::LocalAppData,
+            &local_perp
+        ));
+        let updater = PathBuf::from(r"C:\AppData\Local\perplexity-updater");
+        assert!(should_skip_branded_app_cache_dir(
+            AppCacheScanBase::LocalAppData,
+            &updater
+        ));
+        let comet = PathBuf::from(r"C:\AppData\Local\Comet");
+        assert!(should_skip_branded_app_cache_dir(
+            AppCacheScanBase::LocalAppData,
+            &comet
+        ));
+        let discord = PathBuf::from(r"C:\AppData\Local\discord");
+        assert!(!should_skip_branded_app_cache_dir(
+            AppCacheScanBase::LocalAppData,
+            &discord
+        ));
+    }
+
+    #[test]
+    fn allowlist_excludes_telegram_tdata_and_spotify_storage() {
+        for (_label, loc) in APP_CACHE_LOCATIONS {
+            let joined = match loc {
+                AppCacheLocation::LocalAppDataNested(parts)
+                | AppCacheLocation::AppDataNested(parts) => parts.join("\\"),
+            };
+            let lower = joined.to_ascii_lowercase();
+            assert!(
+                !lower.contains("telegram desktop\\tdata"),
+                "must not target Telegram tdata: {joined}"
+            );
+            assert!(
+                !lower.contains("spotify\\storage"),
+                "must not target Spotify Storage: {joined}"
+            );
+        }
+    }
+
+    #[test]
+    fn allowlist_has_no_perplexity_comet_or_updater_labels() {
+        for (label, _loc) in APP_CACHE_LOCATIONS {
+            let l = label.to_ascii_lowercase();
+            assert!(
+                !l.contains("perplexity"),
+                "unexpected explicit Perplexity target: {label}"
+            );
+            assert!(
+                !l.contains("comet"),
+                "unexpected explicit Comet target: {label}"
+            );
+            assert!(
+                !l.contains("perplexity-updater"),
+                "unexpected explicit perplexity-updater: {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn review_worthy_path_detection() {
+        assert!(scan_includes_review_worthy_paths(&[PathBuf::from(
+            r"C:\Users\x\AppData\Roaming\Notion\Partitions"
+        )]));
+        assert!(scan_includes_review_worthy_paths(&[PathBuf::from(
+            r"C:\Users\x\AppData\Roaming\Cursor\snapshots"
+        )]));
+        assert!(scan_includes_review_worthy_paths(&[PathBuf::from(
+            r"C:\Users\x\AppData\Roaming\Cursor Nightly\snapshots"
+        )]));
+        assert!(!scan_includes_review_worthy_paths(&[PathBuf::from(
+            r"C:\Users\x\AppData\Roaming\Cursor\Cache"
+        )]));
+    }
+
+    #[test]
+    fn curated_scan_does_not_pick_up_generic_vendor_cache_dirs() {
+        let _guard = APP_CACHE_ENV_LOCK.lock().unwrap();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let vendor_cache = tmp.path().join("WoleHeuristicVendor").join("Cache");
+        std::fs::create_dir_all(&vendor_cache).expect("mkdir");
+        std::fs::write(vendor_cache.join("blob"), b"x").expect("write");
+
+        let roaming = tmp.path().join("Roaming");
+        std::fs::create_dir_all(&roaming).expect("roaming");
+
+        let prev_local = std::env::var("LOCALAPPDATA").ok();
+        let prev_app = std::env::var("APPDATA").ok();
+        std::env::set_var("LOCALAPPDATA", tmp.path());
+        std::env::set_var("APPDATA", &roaming);
+
+        let config = Config::default();
+        let r = scan(Path::new(""), &config, OutputMode::Quiet).expect("scan");
+
+        let hit = r
+            .paths
+            .iter()
+            .any(|p| p.to_string_lossy().contains("WoleHeuristicVendor"));
+        assert!(
+            !hit,
+            "curated scan must not add heuristic-only vendor cache paths"
+        );
+
+        match prev_local {
+            Some(v) => std::env::set_var("LOCALAPPDATA", v),
+            None => std::env::remove_var("LOCALAPPDATA"),
+        }
+        match prev_app {
+            Some(v) => std::env::set_var("APPDATA", v),
+            None => std::env::remove_var("APPDATA"),
+        }
+    }
+
+    #[test]
+    fn heuristic_scan_still_skips_branded_dirs_when_used_in_tests() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let local = tmp.path();
+        let mut known = HashSet::new();
+        let config = Config::default();
+
+        let perp = local.join("Perplexity");
+        std::fs::create_dir_all(perp.join("Cache")).expect("mkdir");
+        let comet = local.join("Comet");
+        std::fs::create_dir_all(comet.join("Cache")).expect("mkdir");
+        let safe = local.join("SafeVendor");
+        std::fs::create_dir_all(safe.join("Cache")).expect("mkdir");
+
+        let found = scan_app_caches(local, AppCacheScanBase::LocalAppData, &mut known, &config);
+        let safe_cache = Path::new("SafeVendor").join("Cache");
+        assert!(
+            found.iter().any(|p| p.ends_with(&safe_cache)),
+            "expected SafeVendor Cache, got {found:?}"
+        );
+        assert!(!found
+            .iter()
+            .any(|p| p.to_string_lossy().contains("Perplexity")));
+        assert!(!found.iter().any(|p| p.to_string_lossy().contains("Comet")));
+    }
 }

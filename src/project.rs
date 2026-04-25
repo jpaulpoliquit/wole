@@ -265,6 +265,7 @@ pub fn find_project_roots(root: &Path, config: &Config) -> Vec<PathBuf> {
                                     | ".nuxt"
                                     | ".turbo"
                                     | ".parcel-cache"
+                                    | ".vite"
                                     | "$recycle.bin"
                                     | "system volume information"
                                     | "windows"

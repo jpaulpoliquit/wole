@@ -979,6 +979,7 @@ pub const SKIP_WALK_DIRS: &[&str] = &[
     ".nuxt",
     ".turbo",
     ".parcel-cache",
+    ".vite",
 ];
 
 // Function disabled - walkdir not available in minimal test

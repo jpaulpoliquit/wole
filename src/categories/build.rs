@@ -28,6 +28,7 @@ const DEFAULT_BUILD_ARTIFACTS: &[&str] = &[
     "venv",
     ".gradle",
     ".parcel-cache",
+    ".vite",
     ".turbo",
     ".angular",
     ".svelte-kit",

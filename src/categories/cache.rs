@@ -10,8 +10,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 
-/// Package manager cache locations to scan
-/// Each tuple is (name, path_from_localappdata_or_userprofile)
+/// Package manager and regenerable tool cache locations to scan.
+/// Each tuple is (name, path_from_localappdata_or_userprofile).
+///
+/// Claude Code (`%USERPROFILE%\.claude` on Windows): only `projects`, `file-history`,
+/// `plans`, and `tasks` (session-style data). Not `plugins/`, `settings.json`, or the
+/// whole `.claude` tree. See
+/// <https://code.claude.com/docs/en/claude-directory#application-data>.
 const CACHE_LOCATIONS: &[(&str, CacheLocation)] = &[
     ("npm", CacheLocation::LocalAppData("npm-cache")),
     ("pip", CacheLocation::LocalAppDataNested(&["pip", "cache"])),
@@ -21,6 +26,10 @@ const CACHE_LOCATIONS: &[(&str, CacheLocation)] = &[
     ),
     ("pnpm", CacheLocation::LocalAppData("pnpm-cache")),
     ("pnpm-store", CacheLocation::LocalAppData("pnpm-store")),
+    (
+        "pnpm-content-store",
+        CacheLocation::LocalAppDataNested(&["pnpm", "store"]),
+    ),
     (
         "NuGet",
         CacheLocation::LocalAppDataNested(&["NuGet", "v3-cache"]),
@@ -41,6 +50,44 @@ const CACHE_LOCATIONS: &[(&str, CacheLocation)] = &[
         "Gradle",
         CacheLocation::UserProfileNested(&[".gradle", "caches"]),
     ),
+    (
+        "Gradle wrapper",
+        CacheLocation::UserProfileNested(&[".gradle", "wrapper"]),
+    ),
+    ("Playwright", CacheLocation::LocalAppData("ms-playwright")),
+    (
+        "Playwright Go",
+        CacheLocation::LocalAppData("ms-playwright-go"),
+    ),
+    (
+        "Hugging Face",
+        CacheLocation::UserProfileNested(&[".cache", "huggingface"]),
+    ),
+    (
+        "Puppeteer",
+        CacheLocation::UserProfileNested(&[".cache", "puppeteer"]),
+    ),
+    (
+        "Codex runtimes",
+        CacheLocation::UserProfileNested(&[".cache", "codex-runtimes"]),
+    ),
+    // Claude Code session / cache dirs under ~/.claude (omit plugins, settings, ~/.claude.json)
+    (
+        "Claude Code projects",
+        CacheLocation::UserProfileNested(&[".claude", "projects"]),
+    ),
+    (
+        "Claude Code file-history",
+        CacheLocation::UserProfileNested(&[".claude", "file-history"]),
+    ),
+    (
+        "Claude Code plans",
+        CacheLocation::UserProfileNested(&[".claude", "plans"]),
+    ),
+    (
+        "Claude Code tasks",
+        CacheLocation::UserProfileNested(&[".claude", "tasks"]),
+    ),
 ];
 
 enum CacheLocation {
@@ -49,9 +96,10 @@ enum CacheLocation {
     UserProfileNested(&'static [&'static str]),
 }
 
-/// Scan for package manager cache directories
+/// Scan for package manager and tool cache directories
 ///
-/// Checks well-known Windows cache locations for various package managers.
+/// Checks well-known Windows cache locations for package managers, dev tools, and
+/// Claude Code session data paths under `%USERPROFILE%\.claude`.
 /// Uses shared calculate_dir_size for consistent size calculation.
 pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<CategoryResult> {
     let mut result = CategoryResult::default();
@@ -254,4 +302,21 @@ pub fn clean(path: &Path) -> Result<()> {
         )
     })?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_cache_includes_pnpm_store_and_playwright() {
+        assert!(CACHE_LOCATIONS
+            .iter()
+            .any(|(n, _)| *n == "pnpm-content-store"));
+        assert!(CACHE_LOCATIONS.iter().any(|(n, _)| *n == "Playwright"));
+        assert!(CACHE_LOCATIONS.iter().any(|(n, _)| *n == "Hugging Face"));
+        assert!(CACHE_LOCATIONS
+            .iter()
+            .any(|(n, _)| *n == "Claude Code projects"));
+    }
 }
