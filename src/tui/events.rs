@@ -1050,7 +1050,7 @@ fn handle_results_event(
         // Ensure scroll_offset is valid
         let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
         if app_state.scroll_offset > max_scroll {
-            app_state.scroll_offset = max_scroll.max(0);
+            app_state.scroll_offset = max_scroll;
         }
     }
 
@@ -1245,7 +1245,7 @@ fn handle_results_event(
                 // Ensure scroll_offset is valid
                 let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
                 if app_state.scroll_offset > max_scroll {
-                    app_state.scroll_offset = max_scroll.max(0);
+                    app_state.scroll_offset = max_scroll;
                 }
             }
             EventResult::Continue
@@ -1299,7 +1299,7 @@ fn handle_results_event(
                 // Ensure scroll_offset is valid
                 let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
                 if app_state.scroll_offset > max_scroll {
-                    app_state.scroll_offset = max_scroll.max(0);
+                    app_state.scroll_offset = max_scroll;
                 }
             }
             EventResult::Continue
@@ -1723,7 +1723,7 @@ fn handle_confirm_event(
 
         let max_scroll = max_row.saturating_sub(visible_height.saturating_sub(1));
         if app_state.scroll_offset > max_scroll {
-            app_state.scroll_offset = max_scroll.max(0);
+            app_state.scroll_offset = max_scroll;
         }
     }
 
@@ -2350,18 +2350,18 @@ fn handle_disk_insights_event(
 
         // Sort children folders (must match render order)
         match *sort_by {
-            SortBy::Size => children.sort_by(|a, b| b.size.cmp(&a.size)),
+            SortBy::Size => children.sort_by_key(|b| std::cmp::Reverse(b.size)),
             SortBy::Name => children.sort_by(|a, b| a.name.cmp(&b.name)),
-            SortBy::Files => children.sort_by(|a, b| b.file_count.cmp(&a.file_count)),
+            SortBy::Files => children.sort_by_key(|b| std::cmp::Reverse(b.file_count)),
         }
 
         // Sort files (must match render order)
         match *sort_by {
-            SortBy::Size => files.sort_by(|a, b| b.size.cmp(&a.size)),
+            SortBy::Size => files.sort_by_key(|b| std::cmp::Reverse(b.size)),
             SortBy::Name => files.sort_by(|a, b| a.name.cmp(&b.name)),
             SortBy::Files => {
                 // For files, Files sort doesn't make sense, so use size
-                files.sort_by(|a, b| b.size.cmp(&a.size));
+                files.sort_by_key(|b| std::cmp::Reverse(b.size));
             }
         }
 

@@ -227,7 +227,7 @@ pub fn print_report(result: &ScanResult) {
         .collect();
 
     // Sort by size descending
-    category_stats.sort_by(|a, b| b.2.cmp(&a.2));
+    category_stats.sort_by_key(|b| std::cmp::Reverse(b.2));
 
     // Print header
     println!();
@@ -300,7 +300,7 @@ pub fn print_detailed_report(result: &ScanResult) {
 
         // Show top 5 largest items
         let mut sorted_files: Vec<_> = files.iter().collect();
-        sorted_files.sort_by(|a, b| b.size.cmp(&a.size));
+        sorted_files.sort_by_key(|b| std::cmp::Reverse(b.size));
 
         for file in sorted_files.iter().take(5) {
             print_file_entry(&file.path, file.size, 1);

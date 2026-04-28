@@ -445,7 +445,7 @@ pub fn scan(_root: &Path, config: &Config, output_mode: OutputMode) -> Result<Ca
         .collect();
 
     // Sort by size descending
-    paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    paths_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // Show found caches
     if output_mode != OutputMode::Quiet && !paths_with_sizes.is_empty() {
@@ -548,7 +548,7 @@ pub fn scan_with_progress(
     }
 
     // Sort by size descending
-    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // Build final result
     for (path, size) in files_with_sizes {

@@ -963,7 +963,7 @@ impl AppState {
                         })
                         .collect();
 
-                    folder_groups.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+                    folder_groups.sort_by_key(|b| std::cmp::Reverse(b.total_size));
 
                     // Add ungrouped items as a separate group if any exist
                     if !ungrouped_items.is_empty() {
@@ -1278,7 +1278,7 @@ impl AppState {
                                 }
                             });
                         } else {
-                            folder_groups.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+                            folder_groups.sort_by_key(|b| std::cmp::Reverse(b.total_size));
                         }
 
                         // Add ungrouped items as a separate group if any exist
@@ -3385,7 +3385,7 @@ impl AppState {
                             }
                         });
                     } else {
-                        folder_groups.sort_by(|a, b| b.total_size.cmp(&a.total_size));
+                        folder_groups.sort_by_key(|b| std::cmp::Reverse(b.total_size));
                     }
 
                     if !ungrouped_items.is_empty() {

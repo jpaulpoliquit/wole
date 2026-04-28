@@ -108,7 +108,7 @@ pub fn scan(
     }
 
     // Sort by size descending (biggest first)
-    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // Limit results
     files_with_sizes.truncate(MAX_RESULTS);
@@ -213,7 +213,7 @@ pub fn scan_with_progress(
         }
     }
 
-    files_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    files_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
     files_with_sizes.truncate(MAX_RESULTS);
     for (path, size) in files_with_sizes {
         result.items += 1;

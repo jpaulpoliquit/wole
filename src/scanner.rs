@@ -595,11 +595,10 @@ pub fn scan_all(
             ("applications", Ok(r)) => results.applications = r,
             ("windows_update", Ok(r)) => results.windows_update = r,
             ("event_logs", Ok(r)) => results.event_logs = r,
-            (name, Err(e)) => {
-                if mode != OutputMode::Quiet {
-                    eprintln!("[WARNING] {} scan failed: {}", name, e);
-                }
+            (name, Err(e)) if mode != OutputMode::Quiet => {
+                eprintln!("[WARNING] {} scan failed: {}", name, e);
             }
+            (_, Err(_)) => {}
             _ => {}
         }
     }

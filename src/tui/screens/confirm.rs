@@ -674,7 +674,6 @@ fn render_file_list(f: &mut Frame, area: Rect, app_state: &mut AppState) {
         cursor_line_idx
             .saturating_sub(visible_height.saturating_sub(1))
             .min(max_scroll)
-            .max(0)
     } else if cursor_line_idx < app_state.scroll_offset {
         cursor_line_idx
     } else if cursor_line_idx >= app_state.scroll_offset + visible_height {
@@ -682,8 +681,7 @@ fn render_file_list(f: &mut Frame, area: Rect, app_state: &mut AppState) {
     } else {
         app_state.scroll_offset
     }
-    .min(max_scroll)
-    .max(0); // Ensure scroll is never negative
+    .min(max_scroll);
 
     // Update scroll_offset in app_state to keep it synchronized
     app_state.scroll_offset = scroll;

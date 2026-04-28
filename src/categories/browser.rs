@@ -277,7 +277,7 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
         })
         .filter(|(_, size)| *size > 0)
         .collect();
-    paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    paths_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     for (path, size) in paths_with_sizes.iter() {
         result.items += 1;

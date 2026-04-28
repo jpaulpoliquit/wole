@@ -74,7 +74,7 @@ pub fn scan(_root: &Path, config: &Config) -> Result<CategoryResult> {
             (p, size)
         })
         .collect();
-    paths_with_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    paths_with_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     result.paths = paths_with_sizes.into_iter().map(|(p, _)| p).collect();
 

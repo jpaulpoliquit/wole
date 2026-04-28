@@ -186,18 +186,18 @@ fn render_content(
 
     // Sort children folders
     match sort_by {
-        SortBy::Size => children.sort_by(|a, b| b.size.cmp(&a.size)),
+        SortBy::Size => children.sort_by_key(|b| std::cmp::Reverse(b.size)),
         SortBy::Name => children.sort_by(|a, b| a.name.cmp(&b.name)),
-        SortBy::Files => children.sort_by(|a, b| b.file_count.cmp(&a.file_count)),
+        SortBy::Files => children.sort_by_key(|b| std::cmp::Reverse(b.file_count)),
     }
 
     // Sort files
     match sort_by {
-        SortBy::Size => files.sort_by(|a, b| b.size.cmp(&a.size)),
+        SortBy::Size => files.sort_by_key(|b| std::cmp::Reverse(b.size)),
         SortBy::Name => files.sort_by(|a, b| a.name.cmp(&b.name)),
         SortBy::Files => {
             // For files, Files sort doesn't make sense, so use size
-            files.sort_by(|a, b| b.size.cmp(&a.size));
+            files.sort_by_key(|b| std::cmp::Reverse(b.size));
         }
     }
 

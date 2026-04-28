@@ -497,25 +497,22 @@ pub fn run(initial_state: Option<AppState>) -> Result<()> {
         if event::poll(Duration::from_millis(100))? {
             // Read and handle the first event
             match event::read()? {
-                Event::Key(key) => {
-                    if key.kind == KeyEventKind::Press {
-                        match handle_event(&mut app_state, key.code, key.modifiers) {
-                            events::EventResult::Quit => break,
-                            events::EventResult::Continue => {
-                                // Check if we need to trigger a scan
-                                if let crate::tui::state::Screen::Scanning { .. } = app_state.screen
-                                {
-                                    scan_pending = true;
-                                }
-                                // Check if we need to trigger cleanup
-                                if let crate::tui::state::Screen::Cleaning { .. } = app_state.screen
-                                {
-                                    clean_pending = true;
-                                }
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    match handle_event(&mut app_state, key.code, key.modifiers) {
+                        events::EventResult::Quit => break,
+                        events::EventResult::Continue => {
+                            // Check if we need to trigger a scan
+                            if let crate::tui::state::Screen::Scanning { .. } = app_state.screen {
+                                scan_pending = true;
+                            }
+                            // Check if we need to trigger cleanup
+                            if let crate::tui::state::Screen::Cleaning { .. } = app_state.screen {
+                                clean_pending = true;
                             }
                         }
                     }
                 }
+                Event::Key(_) => {}
                 Event::Mouse(mouse) => match handle_mouse_event(&mut app_state, mouse) {
                     events::EventResult::Quit => break,
                     events::EventResult::Continue => {}
@@ -527,28 +524,25 @@ pub fn run(initial_state: Option<AppState>) -> Result<()> {
             let mut quit = false;
             while event::poll(Duration::from_millis(0))? {
                 match event::read()? {
-                    Event::Key(key) => {
-                        if key.kind == KeyEventKind::Press {
-                            match handle_event(&mut app_state, key.code, key.modifiers) {
-                                events::EventResult::Quit => {
-                                    quit = true;
-                                    break;
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        match handle_event(&mut app_state, key.code, key.modifiers) {
+                            events::EventResult::Quit => {
+                                quit = true;
+                                break;
+                            }
+                            events::EventResult::Continue => {
+                                if let crate::tui::state::Screen::Scanning { .. } = app_state.screen
+                                {
+                                    scan_pending = true;
                                 }
-                                events::EventResult::Continue => {
-                                    if let crate::tui::state::Screen::Scanning { .. } =
-                                        app_state.screen
-                                    {
-                                        scan_pending = true;
-                                    }
-                                    if let crate::tui::state::Screen::Cleaning { .. } =
-                                        app_state.screen
-                                    {
-                                        clean_pending = true;
-                                    }
+                                if let crate::tui::state::Screen::Cleaning { .. } = app_state.screen
+                                {
+                                    clean_pending = true;
                                 }
                             }
                         }
                     }
+                    Event::Key(_) => {}
                     Event::Mouse(mouse) => match handle_mouse_event(&mut app_state, mouse) {
                         events::EventResult::Quit => {
                             quit = true;

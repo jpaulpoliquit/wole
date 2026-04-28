@@ -175,7 +175,7 @@ pub fn scan(
         .collect();
 
     // Sort by size descending (biggest first)
-    artifacts_with_sizes.par_sort_by(|a, b| b.1.cmp(&a.1));
+    artifacts_with_sizes.par_sort_by_key(|b| std::cmp::Reverse(b.1));
 
     // Build result
     for (path, size) in artifacts_with_sizes {
@@ -236,7 +236,7 @@ pub fn scan_with_progress(
         .filter(|(_, size)| *size > 0)
         .collect();
 
-    artifacts_with_sizes.par_sort_by(|a, b| b.1.cmp(&a.1));
+    artifacts_with_sizes.par_sort_by_key(|b| std::cmp::Reverse(b.1));
 
     for (path, size) in artifacts_with_sizes {
         result.items += 1;

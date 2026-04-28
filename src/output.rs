@@ -760,7 +760,7 @@ pub fn print_analyze(results: &ScanResults, mode: OutputMode) {
 
     // Filter out categories with no items and sort by size descending
     categories.retain(|(_, result)| result.items > 0);
-    categories.sort_by(|a, b| b.1.size_bytes.cmp(&a.1.size_bytes));
+    categories.sort_by_key(|b| std::cmp::Reverse(b.1.size_bytes));
 
     // Table column widths
     // (content widths; padding handled by table helpers)

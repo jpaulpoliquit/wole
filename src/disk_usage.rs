@@ -241,7 +241,7 @@ pub fn scan_directory_with_progress(
     }
 
     // Get top 10 largest files
-    file_sizes.sort_by(|a, b| b.1.cmp(&a.1));
+    file_sizes.sort_by_key(|b| std::cmp::Reverse(b.1));
     let largest_files = file_sizes.into_iter().take(10).collect();
 
     // Build folder tree starting from root
@@ -388,7 +388,7 @@ fn build_folder_tree(
     };
 
     // Sort children by size descending
-    children.sort_by(|a, b| b.size.cmp(&a.size));
+    children.sort_by_key(|b| std::cmp::Reverse(b.size));
 
     // Recalculate children's percentages now that we know the current directory's size
     // (they were calculated with a placeholder parent_total)
@@ -465,7 +465,7 @@ pub fn get_top_folders(node: &FolderNode, limit: usize) -> Vec<&FolderNode> {
     }
 
     // Sort by size descending
-    folders.sort_by(|a, b| b.size.cmp(&a.size));
+    folders.sort_by_key(|b| std::cmp::Reverse(b.size));
     folders.into_iter().take(limit).collect()
 }
 
@@ -473,14 +473,14 @@ pub fn get_top_folders(node: &FolderNode, limit: usize) -> Vec<&FolderNode> {
 pub fn sort_children(node: &mut FolderNode, sort_by: SortBy) {
     match sort_by {
         SortBy::Size => {
-            node.children.sort_by(|a, b| b.size.cmp(&a.size));
+            node.children.sort_by_key(|b| std::cmp::Reverse(b.size));
         }
         SortBy::Name => {
             node.children.sort_by(|a, b| a.name.cmp(&b.name));
         }
         SortBy::Files => {
             node.children
-                .sort_by(|a, b| b.file_count.cmp(&a.file_count));
+                .sort_by_key(|b| std::cmp::Reverse(b.file_count));
         }
     }
 
